@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let mediaRecorder = null;
   let chunks = [];
   let isRecording = false;
+  let transcriptionInProgress = false; // ✅ prevent recursion
 
   const pickAudioMime = () => {
     if (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus"))
@@ -39,8 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.data && e.data.size > 0) chunks.push(e.data);
       };
       mediaRecorder.onstop = async () => {
-        // ✅ Ensure onstop runs only once
-        mediaRecorder.onstop = null;
+        mediaRecorder.onstop = null; // ✅ run once
+        if (!chunks.length) return;
 
         const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
         await sendAudioForTranscription(blob);
@@ -48,9 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mediaStream = null;
       };
 
-      // ... keep everything else the same up top ...
-
-      // 🔊 Silence detection
+      // 🔊 Silence detection with RMS volume
       const audioContext = new AudioContext();
       const source = audioContext.createMediaStreamSource(mediaStream);
       const analyser = audioContext.createAnalyser();
@@ -61,13 +60,19 @@ document.addEventListener('DOMContentLoaded', () => {
       let silenceStart = null;
       const maxSilence = 2000; // ms
       function checkSilence() {
-        analyser.getByteFrequencyData(data);
-        const volume = data.reduce((a, b) => a + b, 0) / data.length;
+        analyser.getByteTimeDomainData(data);
+        // RMS calculation
+        const rms = Math.sqrt(
+          data.reduce((sum, v) => {
+            const norm = (v - 128) / 128; // normalize -1..1
+            return sum + norm * norm;
+          }, 0) / data.length
+        );
+        const volume = rms * 100; // scale for readability
 
-        // ✅ Debug log to console
         console.log("🎚️ Volume level:", volume.toFixed(2));
 
-        if (volume < 5) { // adjust sensitivity if needed
+        if (volume < 5) { // adjust threshold as needed
           if (!silenceStart) silenceStart = Date.now();
           else if (Date.now() - silenceStart > maxSilence) {
             console.log("⏹️ Auto-stopping due to silence");
@@ -97,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function stopRecording() {
     if (!isRecording) return; // ✅ prevent double stop
-    if (mediaRecorder && isRecording) {
+    if (mediaRecorder) {
       mediaRecorder.stop();
     }
     isRecording = false;
@@ -105,6 +110,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function sendAudioForTranscription(blob) {
+    if (transcriptionInProgress) return; // ✅ guard
+    transcriptionInProgress = true;
+
     try {
       const ab = await blob.arrayBuffer();
       const base64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
@@ -137,6 +145,8 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       console.error("sendAudioForTranscription error:", err);
       createBubble("⚠️ Something went wrong with transcription. Please try again.", "bot");
+    } finally {
+      transcriptionInProgress = false;
     }
   }
 
