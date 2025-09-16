@@ -12,12 +12,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // === Toggle: Browser voice vs OpenAI voice ===
   const useServerTTS = true;
 
-  // === MediaRecorder state ===
+  // === Recording state ===
   let mediaStream = null;
   let mediaRecorder = null;
   let chunks = [];
   let isRecording = false;
-  let transcriptionInProgress = false; // ✅ prevent recursion
+  let hasStopped = false;              // ✅ prevents multiple stops
+  let transcriptionInProgress = false; // ✅ prevents recursive transcription
 
   const pickAudioMime = () => {
     if (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus"))
@@ -31,6 +32,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function startRecording() {
     try {
+      // ✅ reset guards
+      hasStopped = false;
+      transcriptionInProgress = false;
+
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = pickAudioMime();
       mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
@@ -49,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mediaStream = null;
       };
 
-      // 🔊 Silence detection with RMS volume
+      // 🔊 Silence detection with RMS
       const audioContext = new AudioContext();
       const source = audioContext.createMediaStreamSource(mediaStream);
       const analyser = audioContext.createAnalyser();
@@ -61,18 +66,17 @@ document.addEventListener('DOMContentLoaded', () => {
       const maxSilence = 2000; // ms
       function checkSilence() {
         analyser.getByteTimeDomainData(data);
-        // RMS calculation
         const rms = Math.sqrt(
           data.reduce((sum, v) => {
-            const norm = (v - 128) / 128; // normalize -1..1
+            const norm = (v - 128) / 128;
             return sum + norm * norm;
           }, 0) / data.length
         );
-        const volume = rms * 100; // scale for readability
+        const volume = rms * 100;
 
         console.log("🎚️ Volume level:", volume.toFixed(2));
 
-        if (volume < 5) { // adjust threshold as needed
+        if (volume < 5) { // adjust threshold if needed
           if (!silenceStart) silenceStart = Date.now();
           else if (Date.now() - silenceStart > maxSilence) {
             console.log("⏹️ Auto-stopping due to silence");
@@ -101,8 +105,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function stopRecording() {
-    if (!isRecording) return; // ✅ prevent double stop
-    if (mediaRecorder) {
+    if (hasStopped) return; // ✅ prevent multiple stops
+    hasStopped = true;
+
+    if (isRecording && mediaRecorder) {
       mediaRecorder.stop();
     }
     isRecording = false;
@@ -110,7 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function sendAudioForTranscription(blob) {
-    if (transcriptionInProgress) return; // ✅ guard
+    if (transcriptionInProgress) return; // ✅ prevent recursion
     transcriptionInProgress = true;
 
     try {
