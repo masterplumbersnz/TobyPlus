@@ -183,5 +183,11 @@ document.addEventListener('DOMContentLoaded', () => {
       thinkingBubble.remove();
       createBubble('🤖 My circuits got tangled for a second. Can we try that again?', 'bot');
     }
+    recognition.onerror = (event) => {
+  console.error("❌ Speech recognition error:", event.error);
+  alert("Speech recognition error: " + event.error + 
+        "\n\nTip: Check microphone permissions in your browser settings.");
+};
+
   });
 });
