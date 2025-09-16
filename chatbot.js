@@ -2,7 +2,56 @@ document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('chat-form');
   const input = document.getElementById('user-input');
   const messages = document.getElementById('messages');
+  const micBtn = document.getElementById('mic-btn');
   let thread_id = null;
+
+  // Speech recognition setup
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition;
+  let listening = false;
+
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      input.value = transcript;
+      form.requestSubmit(); // auto-send after speech input
+    };
+
+    recognition.onend = () => {
+      listening = false;
+      micBtn.textContent = "🎤";
+    };
+  } else {
+    console.warn("SpeechRecognition not supported in this browser.");
+    micBtn.disabled = true;
+  }
+
+  // Toggle mic
+  micBtn.addEventListener('click', () => {
+    if (!recognition) return;
+    if (!listening) {
+      recognition.start();
+      listening = true;
+      micBtn.textContent = "🛑";
+    } else {
+      recognition.stop();
+      listening = false;
+      micBtn.textContent = "🎤";
+    }
+  });
+
+  // Speech synthesis
+  const speak = (text) => {
+    if (!("speechSynthesis" in window)) return;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-US";
+    window.speechSynthesis.speak(utterance);
+  };
 
   // Make textarea auto-expand
   input.addEventListener('input', () => {
@@ -10,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     input.style.height = input.scrollHeight + 'px';
   });
 
-  // ✅ NEW: Send message on Enter, newline on Shift+Enter
+  // ✅ Send message on Enter, newline on Shift+Enter
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -26,35 +75,22 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/\n/g, '<br>');
   };
 
-  const formatCitations = (text) => {
-    let formatted = text.replace(/【\d+:\d+†([^†]+)†?(.*?)?】/g, (_, sourceName) => {
-      return `<em>[Source: ${sourceName}]</em>`;
-    });
-
-    formatted = formatted.replace(/\[Source:\s*(.*?)\]/g, (_, sourceName) => {
-      return `<em>[Source: ${sourceName}]</em>`;
-    });
-
-    return formatted;
-  };
-
   const repairInlineCitations = (text) => {
     return text
       .replace(/\[Source:\s*(.*?)】】【(\d+):(\d+)]/g, '【$2:$3†$1†lines】')
       .replace(/\[Source:\s*(.*?)】【(\d+):(\d+)]/g, '【$2:$3†$1†lines】');
   };
 
-  // ✅ NEW: Strip numbered citations like  
   const stripCitations = (text) => {
-  return text.replace(/【\d+:\d+†[^†【】]+(?:†[^【】]*)?】/g, '');
-};
+    return text.replace(/【\d+:\d+†[^†【】]+(?:†[^【】]*)?】/g, '');
+  };
 
   const createBubble = (content, sender) => {
     const div = document.createElement('div');
 
     const cleaned = stripCitations(content);
     const repaired = repairInlineCitations(cleaned);
-    const formatted = formatMarkdown(repaired); // No formatCitations anymore
+    const formatted = formatMarkdown(repaired);
 
     if (sender === 'bot') {
       const wrapper = document.createElement('div');
@@ -71,6 +107,9 @@ document.addEventListener('DOMContentLoaded', () => {
       wrapper.appendChild(avatar);
       wrapper.appendChild(div);
       messages.appendChild(wrapper);
+
+      // Speak Toby's reply
+      speak(cleaned);
     } else {
       div.className = 'bubble user';
       div.innerHTML = content;
@@ -92,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     createBubble(message, 'user');
     input.value = '';
-    input.style.height = 'auto'; // Reset height after sending
+    input.style.height = 'auto';
     const thinkingBubble = showSpinner();
 
     try {
