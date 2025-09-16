@@ -97,7 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
       wrapper.className = 'bot-message';
 
       const avatar = document.createElement('img');
-      avatar.src = 'https://capable-brioche-99db20.netlify.app/Toby-Avatar.svg';
+      avatar.src = 'https://resilient-palmier-22bdf1.netlify.app/Toby-Avatar.svg';
       avatar.alt = 'Toby';
       avatar.className = 'avatar';
 
@@ -135,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const thinkingBubble = showSpinner();
 
     try {
-      const startRes = await fetch('https://capable-brioche-99db20.netlify.app/.netlify/functions/start-run', {
+      const startRes = await fetch('https://resilient-palmier-22bdf1.netlify.app/.netlify/functions/start-run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, thread_id }),
@@ -148,7 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let completed = false;
 
       while (!completed) {
-        const checkRes = await fetch('https://capable-brioche-99db20.netlify.app/.netlify/functions/check-run', {
+        const checkRes = await fetch('https://resilient-palmier-22bdf1.netlify.app/.netlify/functions/check-run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ thread_id, run_id }),
