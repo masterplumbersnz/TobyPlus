@@ -3,6 +3,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('user-input');
   const messages = document.getElementById('messages');
   const micBtn = document.getElementById('mic-btn');
+
+  // === Add Stop Talking button ===
+  const stopTalkBtn = document.createElement('button');
+  stopTalkBtn.textContent = "🛑 Stop Talking";
+  stopTalkBtn.style.marginLeft = "8px";
+  stopTalkBtn.onclick = () => {
+    window.speechSynthesis.cancel();
+    console.log("🛑 Speech stopped by user");
+    updateDebug("Speech stopped");
+  };
+  form.appendChild(stopTalkBtn);
+
   let thread_id = null;
 
   // === Endpoints ===
@@ -69,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       if (!("speechSynthesis" in window)) return;
       const utterance = new SpeechSynthesisUtterance(".");
-      utterance.volume = 0; // silent
+      utterance.volume = 0;
       window.speechSynthesis.speak(utterance);
       console.log("🔓 Speech synthesis unlocked");
       updateDebug("Speech unlocked");
@@ -137,12 +149,17 @@ document.addEventListener('DOMContentLoaded', () => {
       mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) chunks.push(e.data);
       };
+
       mediaRecorder.onstop = async () => {
+        if (transcriptionInProgress) return; // 🔒 only once
         if (!chunks.length) return;
+
+        transcriptionInProgress = true;
         const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
         await sendAudioForTranscription(blob);
         mediaStream.getTracks().forEach(t => t.stop());
         mediaStream = null;
+        transcriptionInProgress = false;
       };
 
       // 🔊 Silence detection with RMS
@@ -156,6 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let silenceStart = null;
       const maxSilence = 2000;
       function checkSilence() {
+        if (hasStopped || !isRecording) return; // ✅ bail if already stopped
         analyser.getByteTimeDomainData(data);
         const rms = Math.sqrt(
           data.reduce((sum, v) => {
@@ -164,9 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }, 0) / data.length
         );
         const volume = rms * 100;
-
         updateDebug(`🎙️ Rec: ${isRecording} | Vol: ${volume.toFixed(2)}`);
-
         if (volume < 5) {
           if (!silenceStart) silenceStart = Date.now();
           else if (Date.now() - silenceStart > maxSilence) {
@@ -177,8 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
           silenceStart = null;
         }
-
-        if (isRecording) requestAnimationFrame(checkSilence);
+        requestAnimationFrame(checkSilence);
       }
       checkSilence();
 
@@ -189,10 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       console.error("getUserMedia error:", err);
       updateDebug("Mic error: " + err.message);
-      createBubble(
-        "⚠️ I can't access your microphone. Please allow mic access in your browser **and** operating system settings, then try again.",
-        "bot"
-      );
+      createBubble("⚠️ I can't access your microphone. Please allow mic access in your browser **and** operating system settings, then try again.", "bot");
     }
   }
 
@@ -211,11 +223,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (transcriptionInProgress) return;
     transcriptionInProgress = true;
     updateDebug("Sending audio for transcription…");
-
     try {
       const ab = await blob.arrayBuffer();
       const base64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
-
       const res = await fetch(transcribeEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -225,23 +235,15 @@ document.addEventListener('DOMContentLoaded', () => {
           fileName: blob.type.includes("mp4") ? "recording.mp4" : "recording.webm",
         }),
       });
-
       if (!res.ok) {
-        const detail = await res.text();
-        console.error("Transcribe failed:", detail);
-        updateDebug("Transcribe failed");
         createBubble("🤖 I couldn't transcribe that audio. Can we try again?", "bot");
         return;
       }
-
       const { text } = await res.json();
       if (!text) {
-        updateDebug("No transcription result");
         createBubble("🤖 I didn't catch that—could you try again?", "bot");
         return;
       }
-
-      updateDebug("Transcription done");
       input.value = text;
       form.requestSubmit();
     } catch (err) {
@@ -255,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // === Event handlers with unlocks ===
   micBtn.addEventListener("click", async () => {
-    unlockSpeech();   // ✅ speech unlock first
+    unlockSpeech();
     await unlockAutoplay();
     if (!isRecording) {
       await startRecording();
@@ -266,7 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    unlockSpeech();   // ✅ speech unlock first
+    unlockSpeech();
     await unlockAutoplay();
     const message = input.value.trim();
     if (!message) return;
@@ -283,20 +285,16 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, thread_id }),
       });
-
       const { thread_id: newThreadId, run_id } = await startRes.json();
       thread_id = newThreadId;
-
       let reply = '';
       let completed = false;
-
       while (!completed) {
         const checkRes = await fetch('https://resilient-palmier-22bdf1.netlify.app/.netlify/functions/check-run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ thread_id, run_id }),
         });
-
         if (checkRes.status === 202) {
           updateDebug("Bot thinking…");
           await new Promise(r => setTimeout(r, 1000));
@@ -308,7 +306,6 @@ document.addEventListener('DOMContentLoaded', () => {
           throw new Error('Check-run failed with status: ' + checkRes.status);
         }
       }
-
       thinkingBubble.remove();
       updateDebug("Reply received");
       createBubble(reply, 'bot');
@@ -337,23 +334,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const div = document.createElement('div');
     const cleaned = stripCitations(content);
     const formatted = formatMarkdown(cleaned);
-
     if (sender === 'bot') {
       const wrapper = document.createElement('div');
       wrapper.className = 'bot-message';
-
       const avatar = document.createElement('img');
       avatar.src = 'https://resilient-palmier-22bdf1.netlify.app/Toby-Avatar.svg';
       avatar.alt = 'Toby';
       avatar.className = 'avatar';
-
       div.className = 'bubble bot';
       div.innerHTML = formatted;
-
       const replayBtn = document.createElement("button");
       replayBtn.textContent = "🔊";
       replayBtn.style.marginLeft = "8px";
-
       replayBtn.onclick = async () => {
         if (div.dataset.hqAudio) {
           const audio = new Audio(div.dataset.hqAudio);
@@ -365,26 +357,19 @@ document.addEventListener('DOMContentLoaded', () => {
           speakBrowser(cleaned);
         }
       };
-
       wrapper.appendChild(avatar);
       wrapper.appendChild(div);
       wrapper.appendChild(replayBtn);
       messages.appendChild(wrapper);
-
-      // 🟢 Speak instantly
       speakBrowser(cleaned);
-
-      // 🎵 Preload HQ OpenAI TTS
       generateServerTTS(cleaned).then((url) => {
         if (url) div.dataset.hqAudio = url;
       });
-
     } else {
       div.className = 'bubble user';
       div.innerHTML = content;
       messages.appendChild(div);
     }
-
     messages.scrollTop = messages.scrollHeight;
     return div;
   };
