@@ -17,30 +17,52 @@ document.addEventListener('DOMContentLoaded', () => {
   let hasStopped = false;
   let transcriptionInProgress = false;
 
+  // === Debug overlay ===
+  const debugOverlay = document.createElement('div');
+  debugOverlay.style.position = 'fixed';
+  debugOverlay.style.bottom = '10px';
+  debugOverlay.style.right = '10px';
+  debugOverlay.style.background = 'rgba(0,0,0,0.7)';
+  debugOverlay.style.color = 'white';
+  debugOverlay.style.padding = '8px 12px';
+  debugOverlay.style.borderRadius = '6px';
+  debugOverlay.style.fontSize = '12px';
+  debugOverlay.style.zIndex = '9999';
+  debugOverlay.style.maxWidth = '240px';
+  debugOverlay.style.fontFamily = 'monospace';
+  debugOverlay.innerText = "🔍 Debug ready";
+  document.body.appendChild(debugOverlay);
+
+  const updateDebug = (msg) => {
+    debugOverlay.innerText = msg;
+  };
+
   // === Speech queue ===
   let speechQueue = Promise.resolve();
   const enqueueSpeech = (fn) => {
     speechQueue = speechQueue.then(fn).catch((err) => {
       console.error("🔇 Speech error:", err);
+      updateDebug("Speech error: " + err.message);
     });
   };
 
   // === Autoplay unlock ===
- async function unlockAutoplay() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const source = ctx.createBufferSource();
-    const buffer = ctx.createBuffer(1, 1, 22050); // 1 sample of silence
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-    source.start(0);
-    await ctx.resume();
-    console.log("🔓 Autoplay unlocked");
-  } catch (e) {
-    console.warn("Autoplay unlock failed", e);
+  async function unlockAutoplay() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = ctx.createBufferSource();
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(0);
+      await ctx.resume();
+      console.log("🔓 Autoplay unlocked");
+      updateDebug("Autoplay unlocked");
+    } catch (e) {
+      console.warn("Autoplay unlock failed", e);
+      updateDebug("Autoplay unlock failed: " + e.message);
+    }
   }
-}
-
 
   // === Speech methods ===
   const speakBrowser = (text) => {
@@ -52,6 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
       utterance.onend = resolve;
       utterance.onerror = (err) => {
         console.error("SpeechSynthesis error:", err);
+        updateDebug("Speech synthesis error: " + err.message);
         resolve();
       };
       window.speechSynthesis.speak(utterance);
@@ -70,6 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return `data:${mimeType};base64,${audioBase64}`;
     } catch (e) {
       console.error("TTS error:", e);
+      updateDebug("TTS error: " + e.message);
       return null;
     }
   };
@@ -99,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.data && e.data.size > 0) chunks.push(e.data);
       };
       mediaRecorder.onstop = async () => {
-        mediaRecorder.onstop = null;
+        console.trace("mediaRecorder.onstop fired");
         if (!chunks.length) return;
 
         const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
@@ -128,10 +152,13 @@ document.addEventListener('DOMContentLoaded', () => {
         );
         const volume = rms * 100;
 
+        updateDebug(`🎙️ Rec: ${isRecording} | Vol: ${volume.toFixed(2)}`);
+
         if (volume < 5) {
           if (!silenceStart) silenceStart = Date.now();
           else if (Date.now() - silenceStart > maxSilence) {
             console.log("⏹️ Auto-stopping due to silence");
+            updateDebug("Auto-stopping due to silence");
             stopRecording();
             return;
           }
@@ -146,9 +173,10 @@ document.addEventListener('DOMContentLoaded', () => {
       mediaRecorder.start();
       isRecording = true;
       micBtn.textContent = "🛑";
-      console.log("🎙️ Recording started with silence detection");
+      updateDebug("Recording started…");
     } catch (err) {
       console.error("getUserMedia error:", err);
+      updateDebug("Mic error: " + err.message);
       createBubble(
         "⚠️ I can't access your microphone. Please allow mic access in your browser **and** operating system settings, then try again.",
         "bot"
@@ -157,6 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function stopRecording() {
+    console.trace("stopRecording called");
     if (hasStopped) return;
     hasStopped = true;
 
@@ -165,11 +194,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     isRecording = false;
     micBtn.textContent = "🎤";
+    updateDebug("Recording stopped");
   }
 
   async function sendAudioForTranscription(blob) {
+    console.trace("sendAudioForTranscription called");
     if (transcriptionInProgress) return;
     transcriptionInProgress = true;
+    updateDebug("Sending audio for transcription…");
 
     try {
       const ab = await blob.arrayBuffer();
@@ -188,20 +220,24 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!res.ok) {
         const detail = await res.text();
         console.error("Transcribe failed:", detail);
+        updateDebug("Transcribe failed");
         createBubble("🤖 I couldn't transcribe that audio. Can we try again?", "bot");
         return;
       }
 
       const { text } = await res.json();
       if (!text) {
+        updateDebug("No transcription result");
         createBubble("🤖 I didn't catch that—could you try again?", "bot");
         return;
       }
 
+      updateDebug("Transcription done");
       input.value = text;
       form.requestSubmit();
     } catch (err) {
       console.error("sendAudioForTranscription error:", err);
+      updateDebug("Transcription error: " + err.message);
       createBubble("⚠️ Something went wrong with transcription. Please try again.", "bot");
     } finally {
       transcriptionInProgress = false;
@@ -210,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // === Event handlers with autoplay unlock ===
   micBtn.addEventListener("click", async () => {
-    await unlockAutoplay(); // ✅ unlock autoplay
+    await unlockAutoplay();
     if (!isRecording) {
       await startRecording();
     } else {
@@ -218,58 +254,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    await unlockAutoplay(); // ✅ unlock autoplay
-    const message = input.value.trim();
-    if (!message) return;
-
-    createBubble(message, 'user');
-    input.value = '';
-    input.style.height = 'auto';
-    const thinkingBubble = showSpinner();
-
-    try {
-      const startRes = await fetch('https://resilient-palmier-22bdf1.netlify.app/.netlify/functions/start-run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, thread_id }),
-      });
-
-      const { thread_id: newThreadId, run_id } = await startRes.json();
-      thread_id = newThreadId;
-
-      let reply = '';
-      let completed = false;
-
-      while (!completed) {
-        const checkRes = await fetch('https://resilient-palmier-22bdf1.netlify.app/.netlify/functions/check-run', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ thread_id, run_id }),
-        });
-
-        if (checkRes.status === 202) {
-          await new Promise(r => setTimeout(r, 1000));
-        } else if (checkRes.ok) {
-          const data = await checkRes.json();
-          reply = data.reply || '(No response)';
-          completed = true;
-        } else {
-          throw new Error('Check-run failed with status: ' + checkRes.status);
-        }
-      }
-
-      thinkingBubble.remove();
-      createBubble(reply, 'bot');
-    } catch (err) {
-      console.error('Chat error:', err);
-      thinkingBubble.remove();
-      createBubble('🤖 My circuits got tangled for a second. Can we try that again?', 'bot');
-    }
-  });
-
-  // === Chat UI helpers ===
+  // === Chat helpers ===
   const formatMarkdown = (text) => {
     return text
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -299,7 +284,6 @@ document.addEventListener('DOMContentLoaded', () => {
       div.className = 'bubble bot';
       div.innerHTML = formatted;
 
-      // 🔊 Replay button
       const replayBtn = document.createElement("button");
       replayBtn.textContent = "🔊";
       replayBtn.style.marginLeft = "8px";
@@ -321,10 +305,7 @@ document.addEventListener('DOMContentLoaded', () => {
       wrapper.appendChild(replayBtn);
       messages.appendChild(wrapper);
 
-      // 🟢 Speak instantly with browser TTS
       speakBrowser(cleaned);
-
-      // 🎵 Also request HQ OpenAI TTS in background
       generateServerTTS(cleaned).then((url) => {
         if (url) div.dataset.hqAudio = url;
       });
@@ -342,4 +323,60 @@ document.addEventListener('DOMContentLoaded', () => {
   const showSpinner = () => {
     return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot');
   };
+
+  // === Chat submit ===
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await unlockAutoplay();
+    const message = input.value.trim();
+    if (!message) return;
+
+    createBubble(message, 'user');
+    input.value = '';
+    input.style.height = 'auto';
+    const thinkingBubble = showSpinner();
+    updateDebug("Message sent, waiting for reply…");
+
+    try {
+      const startRes = await fetch('https://resilient-palmier-22bdf1.netlify.app/.netlify/functions/start-run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, thread_id }),
+      });
+
+      const { thread_id: newThreadId, run_id } = await startRes.json();
+      thread_id = newThreadId;
+
+      let reply = '';
+      let completed = false;
+
+      while (!completed) {
+        const checkRes = await fetch('https://resilient-palmier-22bdf1.netlify.app/.netlify/functions/check-run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ thread_id, run_id }),
+        });
+
+        if (checkRes.status === 202) {
+          updateDebug("Bot thinking…");
+          await new Promise(r => setTimeout(r, 1000));
+        } else if (checkRes.ok) {
+          const data = await checkRes.json();
+          reply = data.reply || '(No response)';
+          completed = true;
+        } else {
+          throw new Error('Check-run failed with status: ' + checkRes.status);
+        }
+      }
+
+      thinkingBubble.remove();
+      updateDebug("Reply received");
+      createBubble(reply, 'bot');
+    } catch (err) {
+      console.error('Chat error:', err);
+      updateDebug("Chat error: " + err.message);
+      thinkingBubble.remove();
+      createBubble('🤖 My circuits got tangled for a second. Can we try that again?', 'bot');
+    }
+  });
 });
