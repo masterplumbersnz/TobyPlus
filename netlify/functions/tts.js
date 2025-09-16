@@ -1,20 +1,19 @@
-// netlify/functions/transcribe.js
-const fetch = require("node-fetch");
-const FormData = require("form-data");
+// netlify/functions/tts.js
 
-// ✅ List all allowed origins (add your own test domains)
+// ✅ No external requires: uses Node 18+ built-in fetch
+
 const allowedOrigins = [
   "https://masterplumbers.org.nz",
   "https://resilient-palmier-22bdf1.netlify.app",
-  "https://caitskinz.github.io/tobytest/", 
-  "http://localhost:8888",                // Netlify dev
+  "https://caitskinz.github.io/tobytest/", // replace with staging
+  "https://your-test-site-2.netlify.app", // replace with staging
+  "http://localhost:8888",
 ];
 
 exports.handler = async (event) => {
   const origin = event.headers.origin;
   const corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
 
-  // Preflight
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 200,
@@ -36,17 +35,12 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { audioBase64, mimeType = "audio/webm", fileName = "recording.webm" } =
-      JSON.parse(event.body || "{}");
-
-    if (!audioBase64) {
+    const { text, voice = "alloy", format = "mp3" } = JSON.parse(event.body || "{}");
+    if (!text) {
       return {
         statusCode: 400,
-        headers: {
-          "Access-Control-Allow-Origin": corsOrigin,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ error: "Missing audioBase64" }),
+        headers: { "Access-Control-Allow-Origin": corsOrigin, "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "Missing text" }),
       };
     }
 
@@ -54,46 +48,38 @@ exports.handler = async (event) => {
     if (!apiKey) {
       return {
         statusCode: 500,
-        headers: {
-          "Access-Control-Allow-Origin": corsOrigin,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ error: "Server missing OPENAI_API_KEY" }),
+        headers: { "Access-Control-Allow-Origin": corsOrigin, "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "Missing OPENAI_API_KEY" }),
       };
     }
 
-    // Decode base64 -> Buffer
-    const buffer = Buffer.from(audioBase64, "base64");
-
-    // Build multipart form for OpenAI Audio Transcriptions
-    // Models: "whisper-1" works widely; newer snapshots like "gpt-4o-mini-transcribe" are also available.
-    const form = new FormData();
-    form.append("file", buffer, { filename: fileName, contentType: mimeType });
-    form.append("model", "whisper-1"); // or "gpt-4o-mini-transcribe"
-
-    const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    // Call OpenAI TTS
+    const resp = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-      body: form,
+      body: JSON.stringify({
+        model: "gpt-4o-mini-tts",
+        voice,
+        input: text,
+        format, // mp3 or wav
+      }),
     });
 
     if (!resp.ok) {
       const errText = await resp.text();
-      console.error("OpenAI STT error:", errText);
+      console.error("OpenAI TTS error:", errText);
       return {
         statusCode: 502,
-        headers: {
-          "Access-Control-Allow-Origin": corsOrigin,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ error: "OpenAI STT failed", detail: errText }),
+        headers: { "Access-Control-Allow-Origin": corsOrigin, "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "OpenAI TTS failed", detail: errText }),
       };
     }
 
-    const data = await resp.json();
-    const text = data.text || "";
+    const arrayBuffer = await resp.arrayBuffer();
+    const base64Audio = Buffer.from(arrayBuffer).toString("base64");
 
     return {
       statusCode: 200,
@@ -101,16 +87,13 @@ exports.handler = async (event) => {
         "Access-Control-Allow-Origin": corsOrigin,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ audioBase64: base64Audio, mimeType: `audio/${format}` }),
     };
   } catch (e) {
-    console.error("Transcribe function error:", e);
+    console.error("TTS function error:", e);
     return {
       statusCode: 500,
-      headers: {
-        "Access-Control-Allow-Origin": corsOrigin,
-        "Content-Type": "application/json",
-      },
+      headers: { "Access-Control-Allow-Origin": corsOrigin, "Content-Type": "application/json" },
       body: JSON.stringify({ error: "Internal server error" }),
     };
   }
