@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const ttsEndpoint = "/.netlify/functions/tts";
 
   // === Toggle: Browser voice vs OpenAI voice ===
-  const useServerTTS = true; // set false if you want browser SpeechSynthesis
+  const useServerTTS = true;
 
   // === MediaRecorder state ===
   let mediaStream = null;
@@ -35,7 +35,9 @@ document.addEventListener('DOMContentLoaded', () => {
       mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
 
       chunks = [];
-      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
       mediaRecorder.onstop = async () => {
         const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
         await sendAudioForTranscription(blob);
@@ -43,9 +45,39 @@ document.addEventListener('DOMContentLoaded', () => {
         mediaStream = null;
       };
 
+      // 🔊 Silence detection
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(mediaStream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+
+      let silenceStart = null;
+      const maxSilence = 2000; // ms
+      function checkSilence() {
+        analyser.getByteFrequencyData(data);
+        const volume = data.reduce((a, b) => a + b, 0) / data.length;
+
+        if (volume < 5) { // adjust sensitivity if needed
+          if (!silenceStart) silenceStart = Date.now();
+          else if (Date.now() - silenceStart > maxSilence) {
+            console.log("⏹️ Auto-stopping due to silence");
+            stopRecording();
+            return;
+          }
+        } else {
+          silenceStart = null;
+        }
+
+        if (isRecording) requestAnimationFrame(checkSilence);
+      }
+      checkSilence();
+
       mediaRecorder.start();
       isRecording = true;
       micBtn.textContent = "🛑";
+      console.log("🎙️ Recording started with silence detection");
     } catch (err) {
       console.error("getUserMedia error:", err);
       createBubble(
@@ -110,7 +142,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- 🔊 Voice output ---
   const speakBrowser = (text) => {
     if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel(); // ✅ cancel any ongoing speech
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "en-US";
     window.speechSynthesis.speak(utterance);
@@ -129,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
       audio.play();
     } catch (e) {
       console.error("TTS error:", e);
-      speakBrowser(text); // fallback
+      speakBrowser(text);
     }
   };
 
@@ -190,7 +222,7 @@ document.addEventListener('DOMContentLoaded', () => {
       div.className = 'bubble bot';
       div.innerHTML = formatted;
 
-      // 🔊 Add replay button
+      // 🔊 Replay button
       const replayBtn = document.createElement("button");
       replayBtn.textContent = "🔊";
       replayBtn.style.marginLeft = "8px";
@@ -201,7 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
       wrapper.appendChild(replayBtn);
       messages.appendChild(wrapper);
 
-      // Auto-speak once
+      // Auto-speak
       speak(cleaned);
     } else {
       div.className = 'bubble user';
