@@ -25,6 +25,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   };
 
+  // === Autoplay unlock ===
+  async function unlockAutoplay() {
+    try {
+      const unlock = new Audio();
+      // tiny silent mp3 data URI
+      unlock.src = "data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAA...";
+      unlock.muted = true;
+      await unlock.play();
+      unlock.pause();
+      console.log("🔓 Autoplay unlocked");
+    } catch (e) {
+      console.warn("Autoplay unlock failed", e);
+    }
+  }
+
   // === Speech methods ===
   const speakBrowser = (text) => {
     enqueueSpeech(() => new Promise((resolve) => {
@@ -191,7 +206,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // === Event handlers with autoplay unlock ===
   micBtn.addEventListener("click", async () => {
+    await unlockAutoplay(); // ✅ unlock autoplay
     if (!isRecording) {
       await startRecording();
     } else {
@@ -199,84 +216,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // === Chat UI helpers ===
-  const formatMarkdown = (text) => {
-    return text
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/^(\d+)\.\s+(.*)$/gm, '<p><strong>$1.</strong> $2</p>')
-      .replace(/\n{2,}/g, '<br><br>')
-      .replace(/\n/g, '<br>');
-  };
-
-  const stripCitations = (text) => {
-    return text.replace(/【\d+:\d+†[^†【】]+(?:†[^【】]*)?】/g, '');
-  };
-
-  const createBubble = (content, sender) => {
-    const div = document.createElement('div');
-    const cleaned = stripCitations(content);
-    const formatted = formatMarkdown(cleaned);
-
-    if (sender === 'bot') {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'bot-message';
-
-      const avatar = document.createElement('img');
-      avatar.src = 'https://resilient-palmier-22bdf1.netlify.app/Toby-Avatar.svg';
-      avatar.alt = 'Toby';
-      avatar.className = 'avatar';
-
-      div.className = 'bubble bot';
-      div.innerHTML = formatted;
-
-      // 🔊 Replay button
-      const replayBtn = document.createElement("button");
-      replayBtn.textContent = "🔊";
-      replayBtn.style.marginLeft = "8px";
-
-      // Default to browser replay; if HQ audio ready, use that
-      replayBtn.onclick = async () => {
-        if (div.dataset.hqAudio) {
-          const audio = new Audio(div.dataset.hqAudio);
-          audio.play().catch(err => {
-            console.error("Replay error:", err);
-            speakBrowser(cleaned);
-          });
-        } else {
-          speakBrowser(cleaned);
-        }
-      };
-
-      wrapper.appendChild(avatar);
-      wrapper.appendChild(div);
-      wrapper.appendChild(replayBtn);
-      messages.appendChild(wrapper);
-
-      // 🟢 Speak instantly with browser TTS
-      speakBrowser(cleaned);
-
-      // 🎵 Also request HQ OpenAI TTS in background
-      generateServerTTS(cleaned).then((url) => {
-        if (url) div.dataset.hqAudio = url;
-      });
-
-    } else {
-      div.className = 'bubble user';
-      div.innerHTML = content;
-      messages.appendChild(div);
-    }
-
-    messages.scrollTop = messages.scrollHeight;
-    return div;
-  };
-
-  const showSpinner = () => {
-    return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot');
-  };
-
-  // === Chat submit ===
-  form.addEventListener('submit', async (e) => {
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    await unlockAutoplay(); // ✅ unlock autoplay
     const message = input.value.trim();
     if (!message) return;
 
@@ -324,4 +266,78 @@ document.addEventListener('DOMContentLoaded', () => {
       createBubble('🤖 My circuits got tangled for a second. Can we try that again?', 'bot');
     }
   });
+
+  // === Chat UI helpers ===
+  const formatMarkdown = (text) => {
+    return text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^(\d+)\.\s+(.*)$/gm, '<p><strong>$1.</strong> $2</p>')
+      .replace(/\n{2,}/g, '<br><br>')
+      .replace(/\n/g, '<br>');
+  };
+
+  const stripCitations = (text) => {
+    return text.replace(/【\d+:\d+†[^†【】]+(?:†[^【】]*)?】/g, '');
+  };
+
+  const createBubble = (content, sender) => {
+    const div = document.createElement('div');
+    const cleaned = stripCitations(content);
+    const formatted = formatMarkdown(cleaned);
+
+    if (sender === 'bot') {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'bot-message';
+
+      const avatar = document.createElement('img');
+      avatar.src = 'https://resilient-palmier-22bdf1.netlify.app/Toby-Avatar.svg';
+      avatar.alt = 'Toby';
+      avatar.className = 'avatar';
+
+      div.className = 'bubble bot';
+      div.innerHTML = formatted;
+
+      // 🔊 Replay button
+      const replayBtn = document.createElement("button");
+      replayBtn.textContent = "🔊";
+      replayBtn.style.marginLeft = "8px";
+
+      replayBtn.onclick = async () => {
+        if (div.dataset.hqAudio) {
+          const audio = new Audio(div.dataset.hqAudio);
+          audio.play().catch(err => {
+            console.error("Replay error:", err);
+            speakBrowser(cleaned);
+          });
+        } else {
+          speakBrowser(cleaned);
+        }
+      };
+
+      wrapper.appendChild(avatar);
+      wrapper.appendChild(div);
+      wrapper.appendChild(replayBtn);
+      messages.appendChild(wrapper);
+
+      // 🟢 Speak instantly with browser TTS
+      speakBrowser(cleaned);
+
+      // 🎵 Also request HQ OpenAI TTS in background
+      generateServerTTS(cleaned).then((url) => {
+        if (url) div.dataset.hqAudio = url;
+      });
+
+    } else {
+      div.className = 'bubble user';
+      div.innerHTML = content;
+      messages.appendChild(div);
+    }
+
+    messages.scrollTop = messages.scrollHeight;
+    return div;
+  };
+
+  const showSpinner = () => {
+    return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot');
+  };
 });
