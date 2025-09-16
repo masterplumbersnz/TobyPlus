@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const micBtn = document.getElementById('mic-btn');
   let thread_id = null;
 
-  // Speech recognition setup
+  // --- 🎤 Speech Recognition Setup ---
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition;
   let listening = false;
@@ -16,22 +16,32 @@ document.addEventListener('DOMContentLoaded', () => {
     recognition.continuous = false;
     recognition.interimResults = false;
 
+    recognition.onstart = () => {
+      console.log("🎤 Mic started, listening...");
+    };
+
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
+      console.log("🗣️ Heard:", transcript);
       input.value = transcript;
-      form.requestSubmit(); // auto-send after speech input
+      form.requestSubmit(); // auto-submit
+    };
+
+    recognition.onerror = (event) => {
+      console.error("❌ Speech recognition error:", event.error);
     };
 
     recognition.onend = () => {
       listening = false;
       micBtn.textContent = "🎤";
+      console.log("🎤 Mic stopped.");
     };
   } else {
-    console.warn("SpeechRecognition not supported in this browser.");
+    console.error("🚫 SpeechRecognition not supported in this browser.");
     micBtn.disabled = true;
   }
 
-  // Toggle mic
+  // Toggle mic on button click
   micBtn.addEventListener('click', () => {
     if (!recognition) return;
     if (!listening) {
@@ -45,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Speech synthesis
+  // --- 🔊 Speech Synthesis ---
   const speak = (text) => {
     if (!("speechSynthesis" in window)) return;
     const utterance = new SpeechSynthesisUtterance(text);
@@ -53,17 +63,17 @@ document.addEventListener('DOMContentLoaded', () => {
     window.speechSynthesis.speak(utterance);
   };
 
-  // Make textarea auto-expand
+  // Auto-expand textarea
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = input.scrollHeight + 'px';
   });
 
-  // ✅ Send message on Enter, newline on Shift+Enter
+  // Send on Enter (Shift+Enter = newline)
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      form.requestSubmit(); // triggers the form submit handler below
+      form.requestSubmit();
     }
   });
 
@@ -97,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
       wrapper.className = 'bot-message';
 
       const avatar = document.createElement('img');
-      avatar.src = 'https://resilient-palmier-22bdf1.netlify.app/Toby-Avatar.svg';
+      avatar.src = 'https://capable-brioche-99db20.netlify.app/Toby-Avatar.svg';
       avatar.alt = 'Toby';
       avatar.className = 'avatar';
 
@@ -108,7 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
       wrapper.appendChild(div);
       messages.appendChild(wrapper);
 
-      // Speak Toby's reply
+      // 🔊 Speak Toby's reply
       speak(cleaned);
     } else {
       div.className = 'bubble user';
@@ -124,6 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot');
   };
 
+  // --- Chat Submit Handler ---
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const message = input.value.trim();
@@ -135,7 +146,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const thinkingBubble = showSpinner();
 
     try {
-      const startRes = await fetch('https://resilient-palmier-22bdf1.netlify.app/.netlify/functions/start-run', {
+      const startRes = await fetch('https://capable-brioche-99db20.netlify.app/.netlify/functions/start-run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, thread_id }),
@@ -148,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let completed = false;
 
       while (!completed) {
-        const checkRes = await fetch('https://resilient-palmier-22bdf1.netlify.app/.netlify/functions/check-run', {
+        const checkRes = await fetch('https://capable-brioche-99db20.netlify.app/.netlify/functions/check-run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ thread_id, run_id }),
