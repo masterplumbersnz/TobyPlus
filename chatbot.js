@@ -50,7 +50,10 @@ document.addEventListener('DOMContentLoaded', () => {
     micBtn.disabled = true;
   }
 
-  // Toggle mic on button click
+ navigator.permissions.query({ name: 'microphone' }).then((result) => {
+  console.log("Microphone permission state:", result.state);
+});
+ // Toggle mic on button click
   micBtn.addEventListener('click', () => {
     if (!recognition) return;
     if (!listening) {
