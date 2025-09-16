@@ -9,9 +9,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const transcribeEndpoint = "/.netlify/functions/transcribe";
   const ttsEndpoint = "/.netlify/functions/tts";
 
-  // === Toggle: Browser voice vs OpenAI voice ===
-  const useServerTTS = true;
-
   // === Recording state ===
   let mediaStream = null;
   let mediaRecorder = null;
@@ -22,13 +19,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // === Speech queue ===
   let speechQueue = Promise.resolve();
-
   const enqueueSpeech = (fn) => {
     speechQueue = speechQueue.then(fn).catch((err) => {
       console.error("🔇 Speech error:", err);
     });
   };
 
+  // === Speech methods ===
+  const speakBrowser = (text) => {
+    enqueueSpeech(() => new Promise((resolve) => {
+      if (!("speechSynthesis" in window)) return resolve();
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "en-US";
+      utterance.onend = resolve;
+      utterance.onerror = (err) => {
+        console.error("SpeechSynthesis error:", err);
+        resolve();
+      };
+      window.speechSynthesis.speak(utterance);
+    }));
+  };
+
+  const generateServerTTS = async (text) => {
+    try {
+      const res = await fetch(ttsEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voice: "alloy", format: "mp3" }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { audioBase64, mimeType } = await res.json();
+      return `data:${mimeType};base64,${audioBase64}`;
+    } catch (e) {
+      console.error("TTS error:", e);
+      return null;
+    }
+  };
+
+  // === Recording ===
   const pickAudioMime = () => {
     if (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus"))
       return "audio/webm;codecs=opus";
@@ -62,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mediaStream = null;
       };
 
-      // 🔊 Silence detection
+      // 🔊 Silence detection with RMS
       const audioContext = new AudioContext();
       const source = audioContext.createMediaStreamSource(mediaStream);
       const analyser = audioContext.createAnalyser();
@@ -81,8 +110,6 @@ document.addEventListener('DOMContentLoaded', () => {
           }, 0) / data.length
         );
         const volume = rms * 100;
-
-        console.log("🎚️ Volume level:", volume.toFixed(2));
 
         if (volume < 5) {
           if (!silenceStart) silenceStart = Date.now();
@@ -172,82 +199,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // --- 🔊 Voice output with queue ---
-  const speakBrowser = (text) => {
-    enqueueSpeech(() => new Promise((resolve) => {
-      if (!("speechSynthesis" in window)) return resolve();
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "en-US";
-      utterance.onend = resolve;
-      utterance.onerror = (err) => {
-        console.error("SpeechSynthesis error:", err);
-        resolve();
-      };
-      window.speechSynthesis.speak(utterance);
-    }));
-  };
-
-  const speakServer = async (text) => {
-    enqueueSpeech(() => new Promise(async (resolve) => {
-      try {
-        const res = await fetch(ttsEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, voice: "alloy", format: "mp3" }),
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const { audioBase64, mimeType } = await res.json();
-        const audio = new Audio(`data:${mimeType};base64,${audioBase64}`);
-        audio.onended = resolve;
-        audio.onerror = (err) => {
-          console.error("TTS playback error:", err);
-          speakBrowser(text); // fallback
-          resolve();
-        };
-        await audio.play().catch(err => {
-          console.warn("🔇 Autoplay blocked, fallback to browser TTS:", err);
-          speakBrowser(text);
-          resolve();
-        });
-      } catch (e) {
-        console.error("TTS error:", e);
-        speakBrowser(text);
-        resolve();
-      }
-    }));
-  };
-
-  const speak = (text) => {
-    if (useServerTTS) speakServer(text);
-    else speakBrowser(text);
-  };
-
-  // --- UI Helpers ---
-  input.addEventListener('input', () => {
-    input.style.height = 'auto';
-    input.style.height = input.scrollHeight + 'px';
-  });
-
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      form.requestSubmit();
-    }
-  });
-
+  // === Chat UI helpers ===
   const formatMarkdown = (text) => {
     return text
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/^(\d+)\.\s+(.*)$/gm, '<p><strong>$1.</strong> $2</p>')
       .replace(/\n{2,}/g, '<br><br>')
       .replace(/\n/g, '<br>');
-  };
-
-  const repairInlineCitations = (text) => {
-    return text
-      .replace(/\[Source:\s*(.*?)】】【(\d+):(\d+)]/g, '【$2:$3†$1†lines】')
-      .replace(/\[Source:\s*(.*?)】【(\d+):(\d+)]/g, '【$2:$3†$1†lines】');
   };
 
   const stripCitations = (text) => {
@@ -257,8 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const createBubble = (content, sender) => {
     const div = document.createElement('div');
     const cleaned = stripCitations(content);
-    const repaired = repairInlineCitations(cleaned);
-    const formatted = formatMarkdown(repaired);
+    const formatted = formatMarkdown(cleaned);
 
     if (sender === 'bot') {
       const wrapper = document.createElement('div');
@@ -276,15 +233,33 @@ document.addEventListener('DOMContentLoaded', () => {
       const replayBtn = document.createElement("button");
       replayBtn.textContent = "🔊";
       replayBtn.style.marginLeft = "8px";
-      replayBtn.onclick = () => speak(cleaned);
+
+      // Default to browser replay; if HQ audio ready, use that
+      replayBtn.onclick = async () => {
+        if (div.dataset.hqAudio) {
+          const audio = new Audio(div.dataset.hqAudio);
+          audio.play().catch(err => {
+            console.error("Replay error:", err);
+            speakBrowser(cleaned);
+          });
+        } else {
+          speakBrowser(cleaned);
+        }
+      };
 
       wrapper.appendChild(avatar);
       wrapper.appendChild(div);
       wrapper.appendChild(replayBtn);
       messages.appendChild(wrapper);
 
-      // Auto-speak (queued)
-      speak(cleaned);
+      // 🟢 Speak instantly with browser TTS
+      speakBrowser(cleaned);
+
+      // 🎵 Also request HQ OpenAI TTS in background
+      generateServerTTS(cleaned).then((url) => {
+        if (url) div.dataset.hqAudio = url;
+      });
+
     } else {
       div.className = 'bubble user';
       div.innerHTML = content;
@@ -299,7 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot');
   };
 
-  // --- Chat submit handler ---
+  // === Chat submit ===
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const message = input.value.trim();
