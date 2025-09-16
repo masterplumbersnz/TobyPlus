@@ -1,16 +1,23 @@
 const fetch = require('node-fetch');
 
-const ALLOWED_ORIGIN = 'https://masterplumbers.org.nz';
+// ✅ List all domains that should be allowed to call this function
+// Replace the placeholders below with your actual Netlify staging domains
+const allowedOrigins = [
+  'https://masterplumbers.org.nz',              // Production
+  'https://resilient-palmier-22bdf1.netlify.app', // Staging 1
+  'https://caitskinz.github.io/tobytest/'                         // Local dev with Netlify CLI
+];
 
 exports.handler = async (event) => {
-  console.log('Incoming Event:', JSON.stringify(event, null, 2));
+  const origin = event.headers.origin;
+  const corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
 
   // Handle CORS preflight
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
       headers: {
-        'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+        'Access-Control-Allow-Origin': corsOrigin,
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
       },
@@ -19,18 +26,17 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Validate and parse incoming JSON
+    // Parse request
     let message, thread_id;
     try {
       const parsed = JSON.parse(event.body || '{}');
       message = parsed.message;
       thread_id = parsed.thread_id;
     } catch (e) {
-      console.error('Invalid JSON in request:', e);
       return {
         statusCode: 400,
         headers: {
-          'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+          'Access-Control-Allow-Origin': corsOrigin,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ error: 'Invalid JSON in request body.' }),
@@ -41,23 +47,22 @@ exports.handler = async (event) => {
       return {
         statusCode: 400,
         headers: {
-          'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+          'Access-Control-Allow-Origin': corsOrigin,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ error: 'Missing message in request body.' }),
       };
     }
 
-    // Get env vars
+    // Env vars
     const assistantId = process.env.OPENAI_ASSISTANT_ID;
     const apiKey = process.env.OPENAI_API_KEY;
 
     if (!apiKey || !assistantId) {
-      console.error('Missing environment variables');
       return {
         statusCode: 500,
         headers: {
-          'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+          'Access-Control-Allow-Origin': corsOrigin,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -66,7 +71,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // Create thread if needed
+    // Create or reuse thread
     const threadRes = thread_id
       ? { id: thread_id }
       : await fetch('https://api.openai.com/v1/threads', {
@@ -79,7 +84,6 @@ exports.handler = async (event) => {
         }).then((res) => res.json());
 
     const threadId = threadRes.id;
-    console.log('Using thread ID:', threadId);
 
     // Post user message
     await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
@@ -104,7 +108,6 @@ exports.handler = async (event) => {
     }).then((res) => res.json());
 
     const runId = runRes.id;
-    console.log('Run started:', runId);
 
     // Poll until complete
     let runStatus = 'in_progress';
@@ -140,22 +143,19 @@ exports.handler = async (event) => {
 
     const reply = lastMessage?.content?.[0]?.text?.value || '(No reply)';
 
-    console.log('Reply:', reply);
-
     return {
       statusCode: 200,
       headers: {
-        'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+        'Access-Control-Allow-Origin': corsOrigin,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ reply, thread_id: threadId }),
     };
   } catch (error) {
-    console.error('Unhandled Error in chat-proxy.js:', error);
     return {
       statusCode: 500,
       headers: {
-        'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+        'Access-Control-Allow-Origin': corsOrigin,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ error: 'Internal server error' }),
