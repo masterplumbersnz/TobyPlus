@@ -179,12 +179,13 @@
       width: 100%;
     }
   }
-</style>
-
+form.chat-form button.mic {
+      background-color: #ff7f50;
+    }
+  </style>
 </head>
 <body>
   <section id="chatbot-section">
-    
     <div id="messages"></div>
 
     <form id="chat-form" class="chat-form">
@@ -194,6 +195,7 @@
         placeholder="Type your question here..."
         autocomplete="off"
       ></textarea>
+      <button type="button" id="mic-btn" class="mic">🎤</button>
       <button type="submit">Ask Toby</button>
     </form>
   </section>
