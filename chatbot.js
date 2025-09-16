@@ -39,11 +39,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.data && e.data.size > 0) chunks.push(e.data);
       };
       mediaRecorder.onstop = async () => {
+        // ✅ Ensure onstop runs only once
+        mediaRecorder.onstop = null;
+
         const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
         await sendAudioForTranscription(blob);
         mediaStream.getTracks().forEach(t => t.stop());
         mediaStream = null;
       };
+
+      // ... keep everything else the same up top ...
 
       // 🔊 Silence detection
       const audioContext = new AudioContext();
@@ -58,6 +63,9 @@ document.addEventListener('DOMContentLoaded', () => {
       function checkSilence() {
         analyser.getByteFrequencyData(data);
         const volume = data.reduce((a, b) => a + b, 0) / data.length;
+
+        // ✅ Debug log to console
+        console.log("🎚️ Volume level:", volume.toFixed(2));
 
         if (volume < 5) { // adjust sensitivity if needed
           if (!silenceStart) silenceStart = Date.now();
@@ -88,6 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function stopRecording() {
+    if (!isRecording) return; // ✅ prevent double stop
     if (mediaRecorder && isRecording) {
       mediaRecorder.stop();
     }
