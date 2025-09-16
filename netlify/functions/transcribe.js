@@ -1,19 +1,20 @@
 // netlify/functions/transcribe.js
-const fetch = require("node-fetch");
-const FormData = require("form-data");
 
-// ✅ List all allowed origins (add your own test domains)
+// ✅ No external requires: uses Node 18+ built-in fetch & FormData
+
 const allowedOrigins = [
   "https://masterplumbers.org.nz",
   "https://resilient-palmier-22bdf1.netlify.app",
-  "https://caitskinz.github.io/tobytest/",
+  "https://caitskinz.github.io/tobytest/", // replace with staging
+  "https://your-test-site-2.netlify.app", // replace with staging
+  "http://localhost:8888", // Netlify dev
 ];
 
 exports.handler = async (event) => {
   const origin = event.headers.origin;
   const corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
 
-  // Preflight
+  // Handle preflight
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 200,
@@ -57,19 +58,20 @@ exports.handler = async (event) => {
           "Access-Control-Allow-Origin": corsOrigin,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ error: "Server missing OPENAI_API_KEY" }),
+        body: JSON.stringify({ error: "Missing OPENAI_API_KEY" }),
       };
     }
 
-    // Decode base64 -> Buffer
+    // Decode base64 → buffer
     const buffer = Buffer.from(audioBase64, "base64");
 
-    // Build multipart form for OpenAI Audio Transcriptions
-    // Models: "whisper-1" works widely; newer snapshots like "gpt-4o-mini-transcribe" are also available.
+    // Create form with Blob
     const form = new FormData();
-    form.append("file", buffer, { filename: fileName, contentType: mimeType });
-    form.append("model", "whisper-1"); // or "gpt-4o-mini-transcribe"
+    const blob = new Blob([buffer], { type: mimeType });
+    form.append("file", blob, fileName);
+    form.append("model", "whisper-1"); // or gpt-4o-mini-transcribe
 
+    // Call OpenAI
     const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
       headers: {
