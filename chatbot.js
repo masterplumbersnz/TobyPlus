@@ -5,69 +5,112 @@ document.addEventListener('DOMContentLoaded', () => {
   const micBtn = document.getElementById('mic-btn');
   let thread_id = null;
 
-  // --- 🎤 Speech Recognition Setup ---
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let recognition;
-  let listening = false;
+  // === Endpoints ===
+  const transcribeEndpoint = "/.netlify/functions/transcribe"; // your STT function
 
-  if (SpeechRecognition) {
-    recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
-    recognition.continuous = false;
-    recognition.interimResults = false;
+  // === MediaRecorder state ===
+  let mediaStream = null;
+  let mediaRecorder = null;
+  let chunks = [];
+  let isRecording = false;
 
-    recognition.onstart = () => {
-      console.log("🎤 Mic started, listening...");
-    };
+  // Pick MIME type
+  const pickAudioMime = () => {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus"))
+      return "audio/webm;codecs=opus";
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm"))
+      return "audio/webm";
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/mp4"))
+      return "audio/mp4";
+    return "";
+  };
 
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      console.log("🗣️ Heard:", transcript);
-      input.value = transcript;
-      form.requestSubmit(); // auto-submit
-    };
+  // Start recording
+  async function startRecording() {
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickAudioMime();
+      mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
 
-    recognition.onerror = (event) => {
-      console.error("❌ Speech recognition error:", event.error);
-      listening = false;
-      micBtn.textContent = "🎤";
-      alert(
-        "Microphone error: " + event.error +
-        "\n\nTips:\n" +
-        "- Make sure microphone access is allowed for this site.\n" +
-        "- In Chrome: click the lock icon in the address bar → Site settings → Microphone → Allow.\n" +
-        "- Refresh the page and try again."
+      chunks = [];
+      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
+        await sendAudioForTranscription(blob);
+        mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = null;
+      };
+
+      mediaRecorder.start();
+      isRecording = true;
+      micBtn.textContent = "🛑";
+      console.log("🎙️ Recording started", mediaRecorder.mimeType);
+    } catch (err) {
+      console.error("getUserMedia error:", err);
+      createBubble(
+        "⚠️ I can't access your microphone. Please allow mic access in your browser **and** operating system settings, then try again.",
+        "bot"
       );
-    };
-
-    recognition.onend = () => {
-      listening = false;
-      micBtn.textContent = "🎤";
-      console.log("🎤 Mic stopped.");
-    };
-  } else {
-    console.error("🚫 SpeechRecognition not supported in this browser.");
-    micBtn.disabled = true;
+    }
   }
 
- navigator.permissions.query({ name: 'microphone' }).then((result) => {
-  console.log("Microphone permission state:", result.state);
-});
- // Toggle mic on button click
-  micBtn.addEventListener('click', () => {
-    if (!recognition) return;
-    if (!listening) {
-      recognition.start();
-      listening = true;
-      micBtn.textContent = "🛑";
+  // Stop recording
+  function stopRecording() {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+    }
+    isRecording = false;
+    micBtn.textContent = "🎤";
+    console.log("⏹️ Recording stopped");
+  }
+
+  // Send audio blob to Netlify STT
+  async function sendAudioForTranscription(blob) {
+    try {
+      const ab = await blob.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
+
+      const res = await fetch(transcribeEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audioBase64: base64,
+          mimeType: blob.type || "audio/webm",
+          fileName: blob.type.includes("mp4") ? "recording.mp4" : "recording.webm",
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = await res.text();
+        console.error("Transcribe failed:", detail);
+        createBubble("🤖 I couldn't transcribe that audio. Can we try again?", "bot");
+        return;
+      }
+
+      const { text } = await res.json();
+      if (!text) {
+        createBubble("🤖 I didn't catch that—could you try again?", "bot");
+        return;
+      }
+
+      input.value = text;
+      form.requestSubmit(); // auto-submit transcript to assistant
+    } catch (err) {
+      console.error("sendAudioForTranscription error:", err);
+      createBubble("⚠️ Something went wrong with transcription. Please try again.", "bot");
+    }
+  }
+
+  // Mic button toggle
+  micBtn.addEventListener("click", async () => {
+    if (!isRecording) {
+      await startRecording();
     } else {
-      recognition.stop();
-      listening = false;
-      micBtn.textContent = "🎤";
+      stopRecording();
     }
   });
 
-  // --- 🔊 Speech Synthesis ---
+  // --- 🔊 Speech Synthesis for bot replies ---
   const speak = (text) => {
     if (!("speechSynthesis" in window)) return;
     const utterance = new SpeechSynthesisUtterance(text);
@@ -75,13 +118,12 @@ document.addEventListener('DOMContentLoaded', () => {
     window.speechSynthesis.speak(utterance);
   };
 
-  // Auto-expand textarea
+  // --- UI Helpers ---
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = input.scrollHeight + 'px';
   });
 
-  // Send on Enter (Shift+Enter = newline)
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -130,7 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
       wrapper.appendChild(div);
       messages.appendChild(wrapper);
 
-      // 🔊 Speak Toby's reply
+      // Speak Toby's reply
       speak(cleaned);
     } else {
       div.className = 'bubble user';
@@ -146,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot');
   };
 
-  // --- Chat Submit Handler ---
+  // --- Chat submit handler (unchanged) ---
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const message = input.value.trim();
