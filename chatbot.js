@@ -17,8 +17,17 @@ document.addEventListener('DOMContentLoaded', () => {
   let mediaRecorder = null;
   let chunks = [];
   let isRecording = false;
-  let hasStopped = false;              // ✅ prevents multiple stops
-  let transcriptionInProgress = false; // ✅ prevents recursive transcription
+  let hasStopped = false;
+  let transcriptionInProgress = false;
+
+  // === Speech queue ===
+  let speechQueue = Promise.resolve();
+
+  const enqueueSpeech = (fn) => {
+    speechQueue = speechQueue.then(fn).catch((err) => {
+      console.error("🔇 Speech error:", err);
+    });
+  };
 
   const pickAudioMime = () => {
     if (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus"))
@@ -32,7 +41,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function startRecording() {
     try {
-      // ✅ reset guards
       hasStopped = false;
       transcriptionInProgress = false;
 
@@ -45,7 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.data && e.data.size > 0) chunks.push(e.data);
       };
       mediaRecorder.onstop = async () => {
-        mediaRecorder.onstop = null; // ✅ run once
+        mediaRecorder.onstop = null;
         if (!chunks.length) return;
 
         const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
@@ -54,7 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mediaStream = null;
       };
 
-      // 🔊 Silence detection with RMS
+      // 🔊 Silence detection
       const audioContext = new AudioContext();
       const source = audioContext.createMediaStreamSource(mediaStream);
       const analyser = audioContext.createAnalyser();
@@ -63,7 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = new Uint8Array(analyser.fftSize);
 
       let silenceStart = null;
-      const maxSilence = 2000; // ms
+      const maxSilence = 2000;
       function checkSilence() {
         analyser.getByteTimeDomainData(data);
         const rms = Math.sqrt(
@@ -76,7 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         console.log("🎚️ Volume level:", volume.toFixed(2));
 
-        if (volume < 5) { // adjust threshold if needed
+        if (volume < 5) {
           if (!silenceStart) silenceStart = Date.now();
           else if (Date.now() - silenceStart > maxSilence) {
             console.log("⏹️ Auto-stopping due to silence");
@@ -105,7 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function stopRecording() {
-    if (hasStopped) return; // ✅ prevent multiple stops
+    if (hasStopped) return;
     hasStopped = true;
 
     if (isRecording && mediaRecorder) {
@@ -116,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function sendAudioForTranscription(blob) {
-    if (transcriptionInProgress) return; // ✅ prevent recursion
+    if (transcriptionInProgress) return;
     transcriptionInProgress = true;
 
     try {
@@ -164,38 +172,55 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // --- 🔊 Voice output ---
+  // --- 🔊 Voice output with queue ---
   const speakBrowser = (text) => {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-US";
-    window.speechSynthesis.speak(utterance);
+    enqueueSpeech(() => new Promise((resolve) => {
+      if (!("speechSynthesis" in window)) return resolve();
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "en-US";
+      utterance.onend = resolve;
+      utterance.onerror = (err) => {
+        console.error("SpeechSynthesis error:", err);
+        resolve();
+      };
+      window.speechSynthesis.speak(utterance);
+    }));
   };
 
   const speakServer = async (text) => {
-    try {
-      const res = await fetch(ttsEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice: "alloy", format: "mp3" }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const { audioBase64, mimeType } = await res.json();
-      const audio = new Audio(`data:${mimeType};base64,${audioBase64}`);
-      audio.play();
-    } catch (e) {
-      console.error("TTS error:", e);
-      speakBrowser(text);
-    }
+    enqueueSpeech(() => new Promise(async (resolve) => {
+      try {
+        const res = await fetch(ttsEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, voice: "alloy", format: "mp3" }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const { audioBase64, mimeType } = await res.json();
+        const audio = new Audio(`data:${mimeType};base64,${audioBase64}`);
+        audio.onended = resolve;
+        audio.onerror = (err) => {
+          console.error("TTS playback error:", err);
+          speakBrowser(text); // fallback
+          resolve();
+        };
+        await audio.play().catch(err => {
+          console.warn("🔇 Autoplay blocked, fallback to browser TTS:", err);
+          speakBrowser(text);
+          resolve();
+        });
+      } catch (e) {
+        console.error("TTS error:", e);
+        speakBrowser(text);
+        resolve();
+      }
+    }));
   };
 
   const speak = (text) => {
-    if (useServerTTS) {
-      speakServer(text);
-    } else {
-      speakBrowser(text);
-    }
+    if (useServerTTS) speakServer(text);
+    else speakBrowser(text);
   };
 
   // --- UI Helpers ---
@@ -258,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
       wrapper.appendChild(replayBtn);
       messages.appendChild(wrapper);
 
-      // Auto-speak
+      // Auto-speak (queued)
       speak(cleaned);
     } else {
       div.className = 'bubble user';
