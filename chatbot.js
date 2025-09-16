@@ -9,8 +9,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const transcribeEndpoint = "/.netlify/functions/transcribe";
   const ttsEndpoint = "/.netlify/functions/tts";
 
-  // === Feature toggle: choose voice output method ===
-  const useServerTTS = true; // 🔄 Set to false to use browser SpeechSynthesis
+  // === Toggle: Browser voice vs OpenAI voice ===
+  const useServerTTS = true; // set false if you want browser SpeechSynthesis
 
   // === MediaRecorder state ===
   let mediaStream = null;
@@ -18,7 +18,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let chunks = [];
   let isRecording = false;
 
-  // Pick MIME type
   const pickAudioMime = () => {
     if (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus"))
       return "audio/webm;codecs=opus";
@@ -29,7 +28,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return "";
   };
 
-  // Start recording
   async function startRecording() {
     try {
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -48,7 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
       mediaRecorder.start();
       isRecording = true;
       micBtn.textContent = "🛑";
-      console.log("🎙️ Recording started", mediaRecorder.mimeType);
     } catch (err) {
       console.error("getUserMedia error:", err);
       createBubble(
@@ -58,17 +55,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Stop recording
   function stopRecording() {
     if (mediaRecorder && isRecording) {
       mediaRecorder.stop();
     }
     isRecording = false;
     micBtn.textContent = "🎤";
-    console.log("⏹️ Recording stopped");
   }
 
-  // Send audio blob → /transcribe → transcript
   async function sendAudioForTranscription(blob) {
     try {
       const ab = await blob.arrayBuffer();
@@ -98,14 +92,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       input.value = text;
-      form.requestSubmit(); // auto-submit transcript to assistant
+      form.requestSubmit();
     } catch (err) {
       console.error("sendAudioForTranscription error:", err);
       createBubble("⚠️ Something went wrong with transcription. Please try again.", "bot");
     }
   }
 
-  // Mic button toggle
   micBtn.addEventListener("click", async () => {
     if (!isRecording) {
       await startRecording();
@@ -114,9 +107,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // --- 🔊 Voice output methods ---
+  // --- 🔊 Voice output ---
   const speakBrowser = (text) => {
     if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel(); // ✅ cancel any ongoing speech
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "en-US";
     window.speechSynthesis.speak(utterance);
@@ -132,11 +126,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!res.ok) throw new Error(await res.text());
       const { audioBase64, mimeType } = await res.json();
       const audio = new Audio(`data:${mimeType};base64,${audioBase64}`);
-      await audio.play();
+      audio.play();
     } catch (e) {
       console.error("TTS error:", e);
-      // fallback
-      speakBrowser(text);
+      speakBrowser(text); // fallback
     }
   };
 
@@ -181,7 +174,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const createBubble = (content, sender) => {
     const div = document.createElement('div');
-
     const cleaned = stripCitations(content);
     const repaired = repairInlineCitations(cleaned);
     const formatted = formatMarkdown(repaired);
@@ -198,11 +190,18 @@ document.addEventListener('DOMContentLoaded', () => {
       div.className = 'bubble bot';
       div.innerHTML = formatted;
 
+      // 🔊 Add replay button
+      const replayBtn = document.createElement("button");
+      replayBtn.textContent = "🔊";
+      replayBtn.style.marginLeft = "8px";
+      replayBtn.onclick = () => speak(cleaned);
+
       wrapper.appendChild(avatar);
       wrapper.appendChild(div);
+      wrapper.appendChild(replayBtn);
       messages.appendChild(wrapper);
 
-      // 🔊 Speak Toby's reply
+      // Auto-speak once
       speak(cleaned);
     } else {
       div.className = 'bubble user';
