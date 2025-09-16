@@ -6,7 +6,11 @@ document.addEventListener('DOMContentLoaded', () => {
   let thread_id = null;
 
   // === Endpoints ===
-  const transcribeEndpoint = "/.netlify/functions/transcribe"; // your STT function
+  const transcribeEndpoint = "/.netlify/functions/transcribe";
+  const ttsEndpoint = "/.netlify/functions/tts";
+
+  // === Feature toggle: choose voice output method ===
+  const useServerTTS = true; // 🔄 Set to false to use browser SpeechSynthesis
 
   // === MediaRecorder state ===
   let mediaStream = null;
@@ -64,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log("⏹️ Recording stopped");
   }
 
-  // Send audio blob to Netlify STT
+  // Send audio blob → /transcribe → transcript
   async function sendAudioForTranscription(blob) {
     try {
       const ab = await blob.arrayBuffer();
@@ -110,12 +114,38 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // --- 🔊 Speech Synthesis for bot replies ---
-  const speak = (text) => {
+  // --- 🔊 Voice output methods ---
+  const speakBrowser = (text) => {
     if (!("speechSynthesis" in window)) return;
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "en-US";
     window.speechSynthesis.speak(utterance);
+  };
+
+  const speakServer = async (text) => {
+    try {
+      const res = await fetch(ttsEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voice: "alloy", format: "mp3" }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { audioBase64, mimeType } = await res.json();
+      const audio = new Audio(`data:${mimeType};base64,${audioBase64}`);
+      await audio.play();
+    } catch (e) {
+      console.error("TTS error:", e);
+      // fallback
+      speakBrowser(text);
+    }
+  };
+
+  const speak = (text) => {
+    if (useServerTTS) {
+      speakServer(text);
+    } else {
+      speakBrowser(text);
+    }
   };
 
   // --- UI Helpers ---
@@ -172,7 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
       wrapper.appendChild(div);
       messages.appendChild(wrapper);
 
-      // Speak Toby's reply
+      // 🔊 Speak Toby's reply
       speak(cleaned);
     } else {
       div.className = 'bubble user';
@@ -188,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot');
   };
 
-  // --- Chat submit handler (unchanged) ---
+  // --- Chat submit handler ---
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const message = input.value.trim();
