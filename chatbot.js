@@ -26,19 +26,21 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // === Autoplay unlock ===
-  async function unlockAutoplay() {
-    try {
-      const unlock = new Audio();
-      // tiny silent mp3 data URI
-      unlock.src = "data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAA...";
-      unlock.muted = true;
-      await unlock.play();
-      unlock.pause();
-      console.log("🔓 Autoplay unlocked");
-    } catch (e) {
-      console.warn("Autoplay unlock failed", e);
-    }
+ async function unlockAutoplay() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = ctx.createBufferSource();
+    const buffer = ctx.createBuffer(1, 1, 22050); // 1 sample of silence
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+    await ctx.resume();
+    console.log("🔓 Autoplay unlocked");
+  } catch (e) {
+    console.warn("Autoplay unlock failed", e);
   }
+}
+
 
   // === Speech methods ===
   const speakBrowser = (text) => {
