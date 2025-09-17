@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // === Add Stop Talking button inside button-group ===
   const stopTalkBtn = document.createElement('button');
-  stopTalkBtn.textContent = "🛑";
+  stopTalkBtn.textContent = "🛑 Stop Playback";
   stopTalkBtn.className = "stop-talk-btn";
   stopTalkBtn.onclick = () => {
     window.speechSynthesis.cancel();
