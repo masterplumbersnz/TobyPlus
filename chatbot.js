@@ -328,4 +328,43 @@ document.addEventListener('DOMContentLoaded', () => {
       const wrapper = document.createElement('div');
       wrapper.className = 'bot-message';
       const avatar = document.createElement('img');
-      avatar.src = 'https
+      avatar.src = 'https://resilient-palmier-22bdf1.netlify.app/Toby-Avatar.svg';
+      avatar.alt = 'Toby';
+      avatar.className = 'avatar';
+      div.className = 'bubble bot';
+      div.innerHTML = formatted;
+      const replayBtn = document.createElement("button");
+      replayBtn.textContent = "🔊";
+      replayBtn.className = "replay-btn";
+      replayBtn.onclick = async () => {
+        if (div.dataset.hqAudio) {
+          const audio = new Audio(div.dataset.hqAudio);
+          audio.play().catch(err => {
+            console.error("Replay error:", err);
+            speakBrowser(cleaned);
+          });
+        } else {
+          speakBrowser(cleaned);
+        }
+      };
+      wrapper.appendChild(avatar);
+      wrapper.appendChild(div);
+      wrapper.appendChild(replayBtn);
+      messages.appendChild(wrapper);
+      if (narrate) speakBrowser(cleaned);
+      generateServerTTS(cleaned).then((url) => {
+        if (url) div.dataset.hqAudio = url;
+      });
+    } else {
+      div.className = 'bubble user';
+      div.innerHTML = content;
+      messages.appendChild(div);
+    }
+    messages.scrollTop = messages.scrollHeight;
+    return div;
+  };
+
+  const showSpinner = () => {
+    return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot', false);
+  };
+});
