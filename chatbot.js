@@ -98,6 +98,31 @@ document.addEventListener("DOMContentLoaded", () => {
     return div.textContent || div.innerText || "";
   }
 
+  // === Pick the best available natural voice ===
+  let preferredVoice = null;
+  function pickBestVoice() {
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return null;
+
+    // Priorities
+    const priorities = ["Siri", "Neural", "Google", "Natural"];
+
+    for (const keyword of priorities) {
+      const match = voices.find((v) => v.name.includes(keyword));
+      if (match) return match;
+    }
+
+    return voices[0]; // fallback
+  }
+
+  // ensure voices are loaded
+  window.speechSynthesis.onvoiceschanged = () => {
+    preferredVoice = pickBestVoice();
+    if (preferredVoice) {
+      updateDebug(`Using voice: ${preferredVoice.name}`);
+    }
+  };
+
   // === Speech methods ===
   const speakBrowser = (text) => {
     const plainText = stripHtmlTags(text);
@@ -109,6 +134,7 @@ document.addEventListener("DOMContentLoaded", () => {
           window.speechSynthesis.cancel();
           const utterance = new SpeechSynthesisUtterance(plainText);
           utterance.lang = "en-US";
+          if (preferredVoice) utterance.voice = preferredVoice;
           utterance.onend = resolve;
           utterance.onerror = (err) => {
             updateDebug("Speech synthesis error: " + err.message);
@@ -232,7 +258,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function stopRecording() {
     if (!isRecording || !mediaRecorder) return;
     isRecording = false;
-    micBtn.textContent = "🎙️ Use Voice";
+    micBtn.textContent = "🎙️";
     updateDebug("Stopping recording...");
     mediaRecorder.stop(); // triggers onstop once
   }
@@ -243,7 +269,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const ab = await blob.arrayBuffer();
-      const base64 = arrayBufferToBase64(ab); // ✅ safe encoder
+      const base64 = arrayBufferToBase64(ab);
 
       const res = await fetch(transcribeEndpoint, {
         method: "POST",
@@ -264,7 +290,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const { text } = await res.json();
       if (text) {
         input.value = text;
-        form.requestSubmit(); // ✅ once per transcription
+        form.requestSubmit();
       }
     } catch (err) {
       updateDebug("Transcription error: " + err.message);
