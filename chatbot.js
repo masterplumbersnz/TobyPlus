@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // === Add Stop Talking button ===
   const stopTalkBtn = document.createElement('button');
   stopTalkBtn.textContent = "🛑 Stop Talking";
-  stopTalkBtn.style.marginLeft = "8px";
+  stopTalkBtn.className = "stop-talk-btn";
   stopTalkBtn.onclick = () => {
     window.speechSynthesis.cancel();
     console.log("🛑 Speech stopped by user");
@@ -30,17 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // === Debug overlay ===
   const debugOverlay = document.createElement('div');
-  debugOverlay.style.position = 'fixed';
-  debugOverlay.style.bottom = '10px';
-  debugOverlay.style.right = '10px';
-  debugOverlay.style.background = 'rgba(0,0,0,0.7)';
-  debugOverlay.style.color = 'white';
-  debugOverlay.style.padding = '8px 12px';
-  debugOverlay.style.borderRadius = '6px';
-  debugOverlay.style.fontSize = '12px';
-  debugOverlay.style.zIndex = '9999';
-  debugOverlay.style.maxWidth = '240px';
-  debugOverlay.style.fontFamily = 'monospace';
+  debugOverlay.className = "debug-overlay";
   debugOverlay.innerText = "🔍 Debug ready";
   document.body.appendChild(debugOverlay);
 
@@ -99,8 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // === Speech methods ===
   const speakBrowser = (text) => {
-    const plainText = stripHtmlTags(text); // ✅ strip HTML before speaking
-    if (!plainText.trim()) return; // don't read empty text
+    const plainText = stripHtmlTags(text);
+    if (!plainText.trim()) return;
     enqueueSpeech(() => new Promise((resolve) => {
       if (!("speechSynthesis" in window)) return resolve();
       window.speechSynthesis.cancel();
@@ -166,7 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mediaStream = null;
       };
 
-      // 🔊 Silence detection with RMS
+      // 🔊 Silence detection
       const audioContext = new AudioContext();
       const source = audioContext.createMediaStreamSource(mediaStream);
       const analyser = audioContext.createAnalyser();
@@ -330,7 +320,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return text.replace(/【\d+:\d+†[^†【】]+(?:†[^【】]*)?】/g, '');
   };
 
-  // narrate flag (default true)
   const createBubble = (content, sender, narrate = true) => {
     const div = document.createElement('div');
     const cleaned = stripCitations(content);
@@ -346,7 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
       div.innerHTML = formatted;
       const replayBtn = document.createElement("button");
       replayBtn.textContent = "🔊";
-      replayBtn.style.marginLeft = "8px";
+      replayBtn.className = "replay-btn";
       replayBtn.onclick = async () => {
         if (div.dataset.hqAudio) {
           const audio = new Audio(div.dataset.hqAudio);
@@ -362,7 +351,7 @@ document.addEventListener('DOMContentLoaded', () => {
       wrapper.appendChild(div);
       wrapper.appendChild(replayBtn);
       messages.appendChild(wrapper);
-      if (narrate) speakBrowser(cleaned); // ✅ only narrate if allowed
+      if (narrate) speakBrowser(cleaned);
       generateServerTTS(cleaned).then((url) => {
         if (url) div.dataset.hqAudio = url;
       });
@@ -376,7 +365,6 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const showSpinner = () => {
-    // ✅ Spinner bubble is created but not narrated
     return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot', false);
   };
 });
