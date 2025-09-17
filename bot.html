@@ -81,6 +81,7 @@
 
   form.chat-form {
     display: flex;
+    flex-direction: column;
     gap: 0.5rem;
     position: sticky;
     bottom: 0;
@@ -102,14 +103,18 @@
     overflow: hidden;
   }
 
-  form.chat-form button {
-    padding: 0.6rem 1rem;
-    font-size: 16px;
+  .button-group {
+    display: flex;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .button-group button {
+    flex: 1;
+    font-size: 14px;
+    padding: 0.5rem;
+    border-radius: 16px;
     font-weight: 600;
-    border: none;
-    border-radius: 20px;
-    cursor: pointer;
-    transition: background 0.2s;
   }
 
   button#mic-btn {
@@ -117,14 +122,19 @@
     color: white;
   }
 
-  form.chat-form button[type="submit"] {
-    background-color: #5ac5cc;
-    color: white;
-  }
-
   .stop-talk-btn {
     background-color: #d9534f;
     color: white;
+  }
+
+  form.chat-form button[type="submit"] {
+    background-color: #5ac5cc;
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: 20px;
+    width: 100%;
+    padding: 0.6rem 1rem;
   }
 
   .replay-btn {
@@ -181,15 +191,6 @@
     .bubble {
       max-width: 100%;
     }
-
-    form.chat-form {
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    form.chat-form button {
-      width: 100%;
-    }
   }
   </style>
 </head>
@@ -204,7 +205,10 @@
         placeholder="Type your question here..."
         autocomplete="off"
       ></textarea>
-      <button type="button" id="mic-btn">🎤</button>
+      <div class="button-group">
+        <button type="button" id="mic-btn">🎤</button>
+        <!-- 🛑 Stop Talking button will be injected here by JS -->
+      </div>
       <button type="submit">Ask Toby</button>
     </form>
   </section>
