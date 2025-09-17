@@ -1,7 +1,7 @@
 {
   "name": "Toby Plus",
   "short_name": "Toby",
-  "start_url": "/",
+  "start_url": "/bot.html",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
