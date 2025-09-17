@@ -27,7 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let chunks = [];
   let isRecording = false;
   let hasStopped = false;
-  let transcriptionInProgress = false;
 
   // === Debug overlay ===
   const debugOverlay = document.createElement('div');
@@ -139,7 +138,6 @@ document.addEventListener('DOMContentLoaded', () => {
   async function startRecording() {
     try {
       hasStopped = false;
-      transcriptionInProgress = false;
 
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = pickAudioMime();
@@ -151,15 +149,12 @@ document.addEventListener('DOMContentLoaded', () => {
       };
 
       mediaRecorder.onstop = async () => {
-        if (transcriptionInProgress) return; // 🔒 only once
         if (!chunks.length) return;
-
-        transcriptionInProgress = true;
+        updateDebug("Recording stopped, sending for transcription…");
         const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
         await sendAudioForTranscription(blob);
         mediaStream.getTracks().forEach(t => t.stop());
         mediaStream = null;
-        transcriptionInProgress = false;
       };
 
       // 🔊 Silence detection with RMS
@@ -173,7 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let silenceStart = null;
       const maxSilence = 2000;
       function checkSilence() {
-        if (hasStopped || !isRecording) return; // ✅ bail if already stopped
+        if (hasStopped || !isRecording) return;
         analyser.getByteTimeDomainData(data);
         const rms = Math.sqrt(
           data.reduce((sum, v) => {
@@ -220,8 +215,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function sendAudioForTranscription(blob) {
-    if (transcriptionInProgress) return;
-    transcriptionInProgress = true;
     updateDebug("Sending audio for transcription…");
     try {
       const ab = await blob.arrayBuffer();
@@ -241,7 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const { text } = await res.json();
       if (!text) {
-        createBubble("🤖 I didn't catch that—could you try again?", "bot");
+        createBubble("🤖 I didn’t catch that — could you try again?", "bot");
         return;
       }
       input.value = text;
@@ -250,8 +243,6 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error("sendAudioForTranscription error:", err);
       updateDebug("Transcription error: " + err.message);
       createBubble("⚠️ Something went wrong with transcription. Please try again.", "bot");
-    } finally {
-      transcriptionInProgress = false;
     }
   }
 
