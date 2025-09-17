@@ -195,21 +195,23 @@
   </style>
 </head>
 <body>
-  <section id="chatbot-section">
-    <div id="messages"></div>
+  <section id="chatbot-section" role="main" aria-label="Ask Toby chatbot">
+    <div id="messages" role="log" aria-live="polite"></div>
 
-    <form id="chat-form" class="chat-form">
+    <form id="chat-form" class="chat-form" aria-label="Chat input form">
+      <label for="user-input" class="sr-only">Type your message</label>
       <textarea
         id="user-input"
         rows="1"
         placeholder="Type your question here..."
+        aria-label="Your message"
         autocomplete="off"
       ></textarea>
       <div class="button-group">
-        <button type="button" id="mic-btn">🎤</button>
+        <button type="button" id="mic-btn" aria-label="Start or stop voice recording" title="Start/Stop recording">🎤</button>
         <!-- 🛑 Stop Talking button will be injected here by JS -->
       </div>
-      <button type="submit">Ask Toby</button>
+      <button type="submit" aria-label="Send message">Ask Toby</button>
     </form>
   </section>
 
