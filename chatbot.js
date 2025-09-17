@@ -90,12 +90,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // === Strip HTML for speech ===
+  function stripHtmlTags(html) {
+    let div = document.createElement("div");
+    div.innerHTML = html;
+    return div.textContent || div.innerText || "";
+  }
+
   // === Speech methods ===
   const speakBrowser = (text) => {
+    const plainText = stripHtmlTags(text); // ✅ strip HTML before speaking
+    if (!plainText.trim()) return; // don't read empty text
     enqueueSpeech(() => new Promise((resolve) => {
       if (!("speechSynthesis" in window)) return resolve();
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
+      const utterance = new SpeechSynthesisUtterance(plainText);
       utterance.lang = "en-US";
       utterance.onend = resolve;
       utterance.onerror = (err) => {
@@ -321,7 +330,8 @@ document.addEventListener('DOMContentLoaded', () => {
     return text.replace(/【\d+:\d+†[^†【】]+(?:†[^【】]*)?】/g, '');
   };
 
-  const createBubble = (content, sender) => {
+  // narrate flag (default true)
+  const createBubble = (content, sender, narrate = true) => {
     const div = document.createElement('div');
     const cleaned = stripCitations(content);
     const formatted = formatMarkdown(cleaned);
@@ -352,7 +362,7 @@ document.addEventListener('DOMContentLoaded', () => {
       wrapper.appendChild(div);
       wrapper.appendChild(replayBtn);
       messages.appendChild(wrapper);
-      speakBrowser(cleaned);
+      if (narrate) speakBrowser(cleaned); // ✅ only narrate if allowed
       generateServerTTS(cleaned).then((url) => {
         if (url) div.dataset.hqAudio = url;
       });
@@ -366,6 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const showSpinner = () => {
-    return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot');
+    // ✅ Spinner bubble is created but not narrated
+    return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot', false);
   };
 });
