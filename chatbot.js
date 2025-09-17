@@ -193,7 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       mediaRecorder.start();
       isRecording = true;
-      micBtn.textContent = "🛑";
+      micBtn.textContent = "🛑 Finished Talking";
       updateDebug("Recording started…");
     } catch (err) {
       console.error("getUserMedia error:", err);
@@ -209,7 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
       mediaRecorder.stop();
     }
     isRecording = false;
-    micBtn.textContent = "🎤";
+    micBtn.textContent = "🎙️";
     updateDebug("Recording stopped");
   }
 
