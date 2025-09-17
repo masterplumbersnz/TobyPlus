@@ -4,39 +4,117 @@ document.addEventListener('DOMContentLoaded', () => {
   const messages = document.getElementById('messages');
   const micBtn = document.getElementById('mic-btn');
 
-  // === Add Stop Talking button inside button-group ===
-  const stopTalkBtn = document.createElement('button');
-  stopTalkBtn.textContent = "🛑 Stop Playback";
-  stopTalkBtn.className = "stop-talk-btn";
-  stopTalkBtn.onclick = () => {
-    window.speechSynthesis.cancel();
-    console.log("🛑 Speech stopped by user");
-    updateDebug("Speech stopped");
-  };
-  document.querySelector('.button-group').appendChild(stopTalkBtn);
-
+  // === State ===
   let thread_id = null;
-
-  // === Endpoints ===
-  const transcribeEndpoint = "/.netlify/functions/transcribe";
-  const ttsEndpoint = "/.netlify/functions/tts";
-
-  // === Recording state ===
   let mediaStream = null;
   let mediaRecorder = null;
   let chunks = [];
   let isRecording = false;
   let hasStopped = false;
 
+  // === Endpoints ===
+  const transcribeEndpoint = "/.netlify/functions/transcribe";
+  const ttsEndpoint = "/.netlify/functions/tts";
+
   // === Debug overlay ===
   const debugOverlay = document.createElement('div');
   debugOverlay.className = "debug-overlay";
   debugOverlay.innerText = "🔍 Debug ready";
   document.body.appendChild(debugOverlay);
+  const updateDebug = (msg) => (debugOverlay.innerText = msg);
 
-  const updateDebug = (msg) => {
-    debugOverlay.innerText = msg;
+  // === Stop Talking button (in the .button-group) ===
+  const stopTalkBtn = document.createElement('button');
+  stopTalkBtn.textContent = "🛑";
+  stopTalkBtn.className = "stop-talk-btn";
+  stopTalkBtn.title = "Stop playback";
+  stopTalkBtn.setAttribute('aria-label', 'Stop playback');
+  stopTalkBtn.onclick = () => {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    updateDebug("Speech stopped");
   };
+  document.querySelector('.button-group').appendChild(stopTalkBtn);
+
+  // === One AudioContext (mobile friendly) ===
+  let audioCtx;
+  function getAudioContext() {
+    try {
+      if (!audioCtx) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (Ctx) audioCtx = new Ctx();
+      }
+      return audioCtx;
+    } catch (e) {
+      console.warn("AudioContext error:", e);
+      return null;
+    }
+  }
+
+  // === Autoplay/speech unlocks ===
+  async function unlockAutoplay() {
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      const source = ctx.createBufferSource();
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(0);
+      await ctx.resume();
+      updateDebug("Autoplay unlocked");
+    } catch (e) {
+      console.warn("Autoplay unlock failed", e);
+      updateDebug("Autoplay unlock failed: " + e.message);
+    }
+  }
+
+  function unlockSpeech() {
+    try {
+      if (!("speechSynthesis" in window)) return;
+      const u = new SpeechSynthesisUtterance(".");
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+      updateDebug("Speech unlocked");
+    } catch (e) {
+      console.warn("Speech unlock failed", e);
+      updateDebug("Speech unlock failed: " + e.message);
+    }
+  }
+
+  // Unlock on any first user gesture (helps mobile)
+  let unlocked = false;
+  function globalUnlockOnce() {
+    if (unlocked) return;
+    unlocked = true;
+    unlockSpeech();
+    unlockAutoplay();
+  }
+  ['click', 'touchstart'].forEach(evt =>
+    document.addEventListener(evt, globalUnlockOnce, { once: true, passive: true })
+  );
+
+  // === Mic permission preflight (if supported) ===
+  async function checkMicPermission() {
+    try {
+      if (!navigator.permissions || !navigator.permissions.query) {
+        updateDebug("Permissions API not available");
+        return;
+      }
+      const status = await navigator.permissions.query({ name: "microphone" });
+      updateDebug(`Mic permission: ${status.state}`);
+      status.onchange = () => updateDebug(`Mic permission: ${status.state}`);
+    } catch (e) {
+      // Not supported on all browsers
+    }
+  }
+  checkMicPermission();
+
+  // === Strip HTML before TTS ===
+  function stripHtmlTags(html) {
+    const div = document.createElement("div");
+    div.innerHTML = html;
+    return div.textContent || div.innerText || "";
+  }
 
   // === Speech queue ===
   let speechQueue = Promise.resolve();
@@ -47,62 +125,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   };
 
-  // === Autoplay unlock ===
-  async function unlockAutoplay() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const source = ctx.createBufferSource();
-      const buffer = ctx.createBuffer(1, 1, 22050);
-      source.buffer = buffer;
-      source.connect(ctx.destination);
-      source.start(0);
-      await ctx.resume();
-      console.log("🔓 Autoplay unlocked");
-      updateDebug("Autoplay unlocked");
-    } catch (e) {
-      console.warn("Autoplay unlock failed", e);
-      updateDebug("Autoplay unlock failed: " + e.message);
-    }
-  }
-
-  // === Speech unlock for mobile ===
-  function unlockSpeech() {
-    try {
-      if (!("speechSynthesis" in window)) return;
-      const utterance = new SpeechSynthesisUtterance(".");
-      utterance.volume = 0;
-      window.speechSynthesis.speak(utterance);
-      console.log("🔓 Speech synthesis unlocked");
-      updateDebug("Speech unlocked");
-    } catch (e) {
-      console.warn("Speech unlock failed", e);
-      updateDebug("Speech unlock failed: " + e.message);
-    }
-  }
-
-  // === Strip HTML for speech ===
-  function stripHtmlTags(html) {
-    let div = document.createElement("div");
-    div.innerHTML = html;
-    return div.textContent || div.innerText || "";
-  }
-
-  // === Speech methods ===
   const speakBrowser = (text) => {
     const plainText = stripHtmlTags(text);
     if (!plainText.trim()) return;
     enqueueSpeech(() => new Promise((resolve) => {
       if (!("speechSynthesis" in window)) return resolve();
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(plainText);
-      utterance.lang = "en-US";
-      utterance.onend = resolve;
-      utterance.onerror = (err) => {
-        console.error("SpeechSynthesis error:", err);
-        updateDebug("Speech synthesis error: " + err.message);
-        resolve();
-      };
-      window.speechSynthesis.speak(utterance);
+      try { window.speechSynthesis.cancel(); } catch {}
+      const u = new SpeechSynthesisUtterance(plainText);
+      u.lang = "en-US";
+      u.onend = resolve;
+      u.onerror = (err) => { console.error("SpeechSynthesis error:", err); resolve(); };
+      window.speechSynthesis.speak(u);
     }));
   };
 
@@ -123,81 +156,96 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // === Recording ===
-  const pickAudioMime = () => {
-    if (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus"))
-      return "audio/webm;codecs=opus";
-    if (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm"))
-      return "audio/webm";
-    if (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/mp4"))
-      return "audio/mp4";
-    return "";
-  };
+  // === Recording helpers ===
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+  // Prefer types per platform
+  function pickAudioMime() {
+    try {
+      if (window.MediaRecorder) {
+        // Safari/iOS often supports mp4 better than webm
+        if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) return "audio/webm;codecs=opus";
+        if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+      }
+    } catch {}
+    return ""; // let the browser decide
+  }
 
   async function startRecording() {
     try {
       hasStopped = false;
+      globalUnlockOnce();
 
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Explicit audio only (helps some Android/iOS prompts)
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       const mimeType = pickAudioMime();
       mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
 
       chunks = [];
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-      };
+      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
       mediaRecorder.onstop = async () => {
-        if (!chunks.length) return;
-        updateDebug("Recording stopped, sending for transcription…");
-        const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
-        await sendAudioForTranscription(blob);
-        mediaStream.getTracks().forEach(t => t.stop());
-        mediaStream = null;
+        try {
+          if (!chunks.length) return;
+          updateDebug("Recording stopped, sending for transcription…");
+          const type = mediaRecorder.mimeType || (isIOS ? "audio/mp4" : "audio/webm");
+          const blob = new Blob(chunks, { type });
+          await sendAudioForTranscription(blob);
+        } finally {
+          try { mediaStream.getTracks().forEach(t => t.stop()); } catch {}
+          mediaStream = null;
+        }
       };
 
-      // 🔊 Silence detection
-      const audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(mediaStream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      const data = new Uint8Array(analyser.fftSize);
+      // 🔊 Silence detection (RMS)
+      const ctx = getAudioContext();
+      const source = ctx ? ctx.createMediaStreamSource(mediaStream) : null;
+      const analyser = ctx ? ctx.createAnalyser() : null;
+      if (ctx && source && analyser) {
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.fftSize);
 
-      let silenceStart = null;
-      const maxSilence = 2000;
-      function checkSilence() {
-        if (hasStopped || !isRecording) return;
-        analyser.getByteTimeDomainData(data);
-        const rms = Math.sqrt(
-          data.reduce((sum, v) => {
-            const norm = (v - 128) / 128;
-            return sum + norm * norm;
-          }, 0) / data.length
-        );
-        const volume = rms * 100;
-        updateDebug(`🎙️ Rec: ${isRecording} | Vol: ${volume.toFixed(2)}`);
-        if (volume < 5) {
-          if (!silenceStart) silenceStart = Date.now();
-          else if (Date.now() - silenceStart > maxSilence) {
-            stopRecording();
-            updateDebug("Stopped by silence");
-            return;
+        let silenceStart = null;
+        const maxSilence = 2000;
+
+        function checkSilence() {
+          if (hasStopped || !isRecording) return;
+          analyser.getByteTimeDomainData(data);
+          const rms = Math.sqrt(
+            data.reduce((sum, v) => {
+              const norm = (v - 128) / 128;
+              return sum + norm * norm;
+            }, 0) / data.length
+          );
+          const volume = rms * 100;
+          updateDebug(`🎙️ Rec: ${isRecording} | Vol: ${volume.toFixed(2)}`);
+          if (volume < 5) {
+            if (!silenceStart) silenceStart = Date.now();
+            else if (Date.now() - silenceStart > maxSilence) {
+              stopRecording();
+              updateDebug("Stopped by silence");
+              return;
+            }
+          } else {
+            silenceStart = null;
           }
-        } else {
-          silenceStart = null;
+          requestAnimationFrame(checkSilence);
         }
-        requestAnimationFrame(checkSilence);
+        checkSilence();
+      } else {
+        updateDebug("Analyser unavailable; skipping silence detection");
       }
-      checkSilence();
 
       mediaRecorder.start();
       isRecording = true;
       micBtn.textContent = "🛑 Finished Talking";
+      micBtn.setAttribute('aria-label', 'Stop recording');
       updateDebug("Recording started…");
     } catch (err) {
       console.error("getUserMedia error:", err);
-      updateDebug("Mic error: " + err.message);
+      updateDebug("Mic error: " + (err && err.message ? err.message : String(err)));
       createBubble("⚠️ I can't access your microphone. Please allow mic access in your browser **and** operating system settings, then try again.", "bot");
     }
   }
@@ -205,11 +253,10 @@ document.addEventListener('DOMContentLoaded', () => {
   function stopRecording() {
     if (hasStopped) return;
     hasStopped = true;
-    if (isRecording && mediaRecorder) {
-      mediaRecorder.stop();
-    }
+    try { if (isRecording && mediaRecorder) mediaRecorder.stop(); } catch {}
     isRecording = false;
-    micBtn.textContent = "🎙️";
+    micBtn.textContent = "🎙️Voice Chat";
+    micBtn.setAttribute('aria-label', 'Start recording');
     updateDebug("Recording stopped");
   }
 
@@ -223,11 +270,12 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           audioBase64: base64,
-          mimeType: blob.type || "audio/webm",
-          fileName: blob.type.includes("mp4") ? "recording.mp4" : "recording.webm",
+          mimeType: blob.type || (isIOS ? "audio/mp4" : "audio/webm"),
+          fileName: (blob.type && blob.type.includes("mp4")) || isIOS ? "recording.mp4" : "recording.webm",
         }),
       });
       if (!res.ok) {
+        updateDebug("Transcribe HTTP " + res.status);
         createBubble("🤖 I couldn't transcribe that audio. Can we try again?", "bot");
         return;
       }
@@ -240,15 +288,14 @@ document.addEventListener('DOMContentLoaded', () => {
       form.requestSubmit();
     } catch (err) {
       console.error("sendAudioForTranscription error:", err);
-      updateDebug("Transcription error: " + err.message);
+      updateDebug("Transcription error: " + (err && err.message ? err.message : String(err)));
       createBubble("⚠️ Something went wrong with transcription. Please try again.", "bot");
     }
   }
 
-  // === Event handlers with unlocks ===
+  // === UI events ===
   micBtn.addEventListener("click", async () => {
-    unlockSpeech();
-    await unlockAutoplay();
+    globalUnlockOnce();
     if (!isRecording) {
       await startRecording();
     } else {
@@ -256,7 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // ✅ Enter-to-send: Enter submits, Shift+Enter = newline
+  // Enter-to-send
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -264,7 +311,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // ✅ Auto-resize textarea
+  // Auto-resize textarea
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = input.scrollHeight + "px";
@@ -272,8 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    unlockSpeech();
-    await unlockAutoplay();
+    globalUnlockOnce();
     const message = input.value.trim();
     if (!message) return;
 
@@ -291,6 +337,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const { thread_id: newThreadId, run_id } = await startRes.json();
       thread_id = newThreadId;
+
       let reply = '';
       let completed = false;
       while (!completed) {
@@ -310,12 +357,13 @@ document.addEventListener('DOMContentLoaded', () => {
           throw new Error('Check-run failed with status: ' + checkRes.status);
         }
       }
+
       thinkingBubble.remove();
       updateDebug("Reply received");
       createBubble(reply, 'bot');
     } catch (err) {
       console.error('Chat error:', err);
-      updateDebug("Chat error: " + err.message);
+      updateDebug("Chat error: " + (err && err.message ? err.message : String(err)));
       thinkingBubble.remove();
       createBubble('🤖 My circuits got tangled for a second. Can we try that again?', 'bot');
     }
@@ -338,33 +386,43 @@ document.addEventListener('DOMContentLoaded', () => {
     const div = document.createElement('div');
     const cleaned = stripCitations(content);
     const formatted = formatMarkdown(cleaned);
+
     if (sender === 'bot') {
       const wrapper = document.createElement('div');
       wrapper.className = 'bot-message';
+
       const avatar = document.createElement('img');
       avatar.src = 'https://resilient-palmier-22bdf1.netlify.app/Toby-Avatar.svg';
       avatar.alt = 'Toby';
       avatar.className = 'avatar';
+
       div.className = 'bubble bot';
       div.innerHTML = formatted;
+
       const replayBtn = document.createElement("button");
       replayBtn.textContent = "🔊";
       replayBtn.className = "replay-btn";
+      replayBtn.title = "Replay audio";
+      replayBtn.setAttribute('aria-label', 'Replay audio');
       replayBtn.onclick = async () => {
+        globalUnlockOnce();
         if (div.dataset.hqAudio) {
           const audio = new Audio(div.dataset.hqAudio);
-          audio.play().catch(err => {
+          try { await audio.play(); }
+          catch (err) {
             console.error("Replay error:", err);
-            speakBrowser(cleaned);
-          });
+            speakBrowser(cleaned); // fallback
+          }
         } else {
           speakBrowser(cleaned);
         }
       };
+
       wrapper.appendChild(avatar);
       wrapper.appendChild(div);
       wrapper.appendChild(replayBtn);
       messages.appendChild(wrapper);
+
       if (narrate) speakBrowser(cleaned);
       generateServerTTS(cleaned).then((url) => {
         if (url) div.dataset.hqAudio = url;
@@ -379,10 +437,14 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const showSpinner = () => {
+    // spinner is not narrated
     return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot', false);
   };
-  if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/service-worker.js");
-}
 
+  // === Optional: service worker (safe registration) ===
+  if ("serviceWorker" in navigator) {
+    try {
+      navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+    } catch {}
+  }
 });
