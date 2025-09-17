@@ -256,6 +256,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // ✅ Enter-to-send: Enter submits, Shift+Enter = newline
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  // ✅ Auto-resize textarea
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = input.scrollHeight + "px";
+  });
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     unlockSpeech();
