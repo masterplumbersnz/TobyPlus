@@ -232,7 +232,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function stopRecording() {
     if (!isRecording || !mediaRecorder) return;
     isRecording = false;
-    micBtn.textContent = "🎙️";
+    micBtn.textContent = "🎙️ Use Voice";
     updateDebug("Stopping recording...");
     mediaRecorder.stop(); // triggers onstop once
   }
