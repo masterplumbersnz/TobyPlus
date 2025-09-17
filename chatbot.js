@@ -381,4 +381,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const showSpinner = () => {
     return createBubble('<span class="spinner"></span> Toby is thinking...', 'bot', false);
   };
+  if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/service-worker.js");
+}
+
 });
