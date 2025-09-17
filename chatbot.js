@@ -29,9 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let chunks = [];
   let isRecording = false;
   let hasStopped = false;
-
-  // === Transcription guard ===
-  let isTranscribing = false;
+  let isTranscribing = false; // guard
 
   // === Debug overlay ===
   const debugOverlay = document.createElement("div");
@@ -150,7 +148,7 @@ document.addEventListener("DOMContentLoaded", () => {
       };
 
       mediaRecorder.onstop = async () => {
-        if (hasStopped) return; // ✅ guard
+        if (hasStopped) return; // guard
         hasStopped = true;
         if (!chunks.length) return;
         updateDebug("Recording stopped, sending for transcription…");
@@ -199,7 +197,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       mediaRecorder.start();
       isRecording = true;
-      micBtn.textContent = "🛑";
+      micBtn.textContent = "🛑"; // recording
       updateDebug("Recording started…");
     } catch (err) {
       updateDebug("Mic error: " + err.message);
@@ -211,18 +209,15 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function stopRecording() {
-    if (hasStopped) return;
-    hasStopped = true;
-    if (isRecording && mediaRecorder) {
-      mediaRecorder.stop();
-    }
-    isRecording = false;
-    micBtn.textContent = "🎙️";
-    updateDebug("Recording stopped");
+    if (!isRecording || !mediaRecorder) return;
+    isRecording = false; // mark stopped
+    micBtn.textContent = "🎙️"; // reset button
+    updateDebug("Stopping recording...");
+    mediaRecorder.stop(); // onstop will fire once
   }
 
   async function sendAudioForTranscription(blob) {
-    if (isTranscribing) return; // ✅ guard
+    if (isTranscribing) return; // guard
     isTranscribing = true;
 
     updateDebug("Sending audio for transcription…");
@@ -252,7 +247,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (text) {
         input.value = text;
-        form.requestSubmit(); // ✅ only once
+        form.requestSubmit(); // only once
       }
     } catch (err) {
       updateDebug("Transcription error: " + err.message);
@@ -273,7 +268,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // ✅ Enter-to-send: Enter submits, Shift+Enter = newline
+  // ✅ Enter-to-send
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
