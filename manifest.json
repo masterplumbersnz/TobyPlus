@@ -1,7 +1,7 @@
 {
   "name": "My Chatbot",
   "short_name": "Chatbot",
-  "start_url": "/bot.html",
+  "start_url": "./bot.html",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#000000",
