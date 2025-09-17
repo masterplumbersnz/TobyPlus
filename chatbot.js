@@ -41,6 +41,18 @@ document.addEventListener("DOMContentLoaded", () => {
     debugOverlay.innerText = msg;
   };
 
+  // === Safe Base64 Encoder ===
+  function arrayBufferToBase64(buffer) {
+    let binary = "";
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 0x8000; // 32KB chunks
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(binary);
+  }
+
   // === Speech queue ===
   let speechQueue = Promise.resolve();
   const enqueueSpeech = (fn) => {
@@ -231,7 +243,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const ab = await blob.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
+      const base64 = arrayBufferToBase64(ab); // ✅ safe encoder
+
       const res = await fetch(transcribeEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
