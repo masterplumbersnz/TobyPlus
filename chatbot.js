@@ -4,7 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const messages = document.getElementById("messages");
   const micBtn = document.getElementById("mic-btn");
 
-  // === Add Stop Talking button ===
+  // === Stop Talking button ===
   const stopTalkBtn = document.createElement("button");
   stopTalkBtn.textContent = "🛑 Stop Playback";
   stopTalkBtn.className = "stop-talk-btn";
@@ -29,7 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let chunks = [];
   let isRecording = false;
   let hasStopped = false;
-  let isTranscribing = false; // guard
+  let isTranscribing = false;
 
   // === Debug overlay ===
   const debugOverlay = document.createElement("div");
@@ -135,6 +135,8 @@ document.addEventListener("DOMContentLoaded", () => {
   async function startRecording() {
     try {
       hasStopped = false;
+      chunks = [];
+
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = pickAudioMime();
       mediaRecorder = new MediaRecorder(
@@ -142,22 +144,29 @@ document.addEventListener("DOMContentLoaded", () => {
         mimeType ? { mimeType } : undefined
       );
 
-      chunks = [];
       mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) chunks.push(e.data);
       };
 
       mediaRecorder.onstop = async () => {
-        if (hasStopped) return; // guard
+        if (hasStopped) return;
         hasStopped = true;
+
         if (!chunks.length) return;
         updateDebug("Recording stopped, sending for transcription…");
+
         const blob = new Blob(chunks, {
           type: mediaRecorder.mimeType || "audio/webm",
         });
-        await sendAudioForTranscription(blob);
-        mediaStream.getTracks().forEach((t) => t.stop());
-        mediaStream = null;
+
+        if (!isTranscribing) {
+          await sendAudioForTranscription(blob);
+        }
+
+        if (mediaStream) {
+          mediaStream.getTracks().forEach((t) => t.stop());
+          mediaStream = null;
+        }
       };
 
       // 🔊 Silence detection
@@ -197,7 +206,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       mediaRecorder.start();
       isRecording = true;
-      micBtn.textContent = "🛑"; // recording
+      micBtn.textContent = "🛑";
       updateDebug("Recording started…");
     } catch (err) {
       updateDebug("Mic error: " + err.message);
@@ -210,17 +219,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function stopRecording() {
     if (!isRecording || !mediaRecorder) return;
-    isRecording = false; // mark stopped
-    micBtn.textContent = "🎙️"; // reset button
+    isRecording = false;
+    micBtn.textContent = "🎙️";
     updateDebug("Stopping recording...");
-    mediaRecorder.stop(); // onstop will fire once
+    mediaRecorder.stop(); // triggers onstop once
   }
 
   async function sendAudioForTranscription(blob) {
-    if (isTranscribing) return; // guard
+    if (isTranscribing) return;
     isTranscribing = true;
 
-    updateDebug("Sending audio for transcription…");
     try {
       const ab = await blob.arrayBuffer();
       const base64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
@@ -240,14 +248,10 @@ document.addEventListener("DOMContentLoaded", () => {
         createBubble("🤖 I couldn't transcribe that audio. Can we try again?", "bot");
         return;
       }
-      const { offline, text } = await res.json();
-      if (offline) {
-        createBubble("⚠️ You’re offline. I can’t transcribe audio right now.", "bot");
-        return;
-      }
+      const { text } = await res.json();
       if (text) {
         input.value = text;
-        form.requestSubmit(); // only once
+        form.requestSubmit(); // ✅ once per transcription
       }
     } catch (err) {
       updateDebug("Transcription error: " + err.message);
@@ -303,12 +307,7 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({ message, thread_id }),
       });
       if (!startRes.ok) throw new Error("start-run failed");
-      const { offline, thread_id: newThreadId, run_id } = await startRes.json();
-      if (offline) {
-        thinkingBubble.remove();
-        createBubble("⚠️ You’re offline. I can’t reach the server right now.", "bot", false);
-        return;
-      }
+      const { thread_id: newThreadId, run_id } = await startRes.json();
 
       thread_id = newThreadId;
       let reply = "";
@@ -326,11 +325,6 @@ document.addEventListener("DOMContentLoaded", () => {
           await new Promise((r) => setTimeout(r, 1000));
         } else if (checkRes.ok) {
           const data = await checkRes.json();
-          if (data.offline) {
-            thinkingBubble.remove();
-            createBubble("⚠️ You’re offline. I can’t reach the server right now.", "bot", false);
-            return;
-          }
           reply = data.reply || "(No response)";
           completed = true;
         } else {
