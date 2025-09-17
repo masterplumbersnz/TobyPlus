@@ -4,10 +4,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const messages = document.getElementById("messages");
   const micBtn = document.getElementById("mic-btn");
 
-  // === Add Stop Talking button inside button-group ===
+  // === Add Stop Talking button ===
   const stopTalkBtn = document.createElement("button");
-  stopTalkBtn.textContent = "🛑 Stop Playback";
+  stopTalkBtn.textContent = "🛑";
   stopTalkBtn.className = "stop-talk-btn";
+  stopTalkBtn.title = "Stop playback";
   stopTalkBtn.onclick = () => {
     window.speechSynthesis.cancel();
     updateDebug("Speech stopped by user");
@@ -28,6 +29,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let chunks = [];
   let isRecording = false;
   let hasStopped = false;
+
+  // === Transcription guard ===
+  let isTranscribing = false;
 
   // === Debug overlay ===
   const debugOverlay = document.createElement("div");
@@ -146,6 +150,8 @@ document.addEventListener("DOMContentLoaded", () => {
       };
 
       mediaRecorder.onstop = async () => {
+        if (hasStopped) return; // ✅ guard
+        hasStopped = true;
         if (!chunks.length) return;
         updateDebug("Recording stopped, sending for transcription…");
         const blob = new Blob(chunks, {
@@ -193,7 +199,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       mediaRecorder.start();
       isRecording = true;
-      micBtn.textContent = "🛑 Finished Talking";
+      micBtn.textContent = "🛑";
       updateDebug("Recording started…");
     } catch (err) {
       updateDebug("Mic error: " + err.message);
@@ -211,11 +217,14 @@ document.addEventListener("DOMContentLoaded", () => {
       mediaRecorder.stop();
     }
     isRecording = false;
-    micBtn.textContent = "🎙️ Voice Chat";
+    micBtn.textContent = "🎙️";
     updateDebug("Recording stopped");
   }
 
   async function sendAudioForTranscription(blob) {
+    if (isTranscribing) return; // ✅ guard
+    isTranscribing = true;
+
     updateDebug("Sending audio for transcription…");
     try {
       const ab = await blob.arrayBuffer();
@@ -241,15 +250,15 @@ document.addEventListener("DOMContentLoaded", () => {
         createBubble("⚠️ You’re offline. I can’t transcribe audio right now.", "bot");
         return;
       }
-      if (!text) {
-        createBubble("🤖 I didn’t catch that — could you try again?", "bot");
-        return;
+      if (text) {
+        input.value = text;
+        form.requestSubmit(); // ✅ only once
       }
-      input.value = text;
-      form.requestSubmit();
     } catch (err) {
       updateDebug("Transcription error: " + err.message);
       createBubble("⚠️ Something went wrong with transcription. Please try again.", "bot");
+    } finally {
+      isTranscribing = false;
     }
   }
 
